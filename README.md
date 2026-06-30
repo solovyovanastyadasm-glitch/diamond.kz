@@ -1,0 +1,2313 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Search, ShoppingCart, X, Menu, ChevronRight, ChevronDown, ChevronLeft,
+  Plus, Minus, Trash2, Pencil, Check, MessageCircle, Phone, MapPin, Truck,
+  ShieldCheck, Star, ArrowRight, Lock, LogOut, Tag, Image as ImageIcon,
+  FlaskConical, Sparkles, Cloud, Settings2, Waves, Wind, Disc, Droplets,
+  Layers, Paintbrush2, Square, Package, Boxes, Filter, AlertCircle, Clock,
+  Save, RotateCcw, Building2, Send, Award, Info, ChevronUp
+} from 'lucide-react';
+import * as THREE from 'three';
+
+/* ============================================================
+   CONSTANTS & HELPERS
+   ============================================================ */
+
+const WHATSAPP_PHONE = '77052034964';
+const CONTACT_PHONE_DISPLAY = '+7 705 203 4964';
+const CONTACT_NAME = 'Александр';
+const STORE_NAME = 'DIAMOND';
+
+function waLink(text) {
+  return `https://wa.me/${WHATSAPP_PHONE}?text=${encodeURIComponent(text)}`;
+}
+
+function formatPrice(n) {
+  return new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' \u20B8';
+}
+
+function genId(prefix = 'id') {
+  return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function cls(...parts) {
+  return parts.filter(Boolean).join(' ');
+}
+
+function finalPrice(p) {
+  if (p.discountPercent > 0) {
+    return Math.round((p.price * (1 - p.discountPercent / 100)) / 10) * 10;
+  }
+  return p.price;
+}
+
+function digitsOnly(s) {
+  return (s || '').replace(/\D/g, '');
+}
+
+/* ============================================================
+   ICONS MAP (used for categories — fixed safe set)
+   ============================================================ */
+
+const ICONS = {
+  FlaskConical, Sparkles, Cloud, Settings2, Waves, Wind, Disc, Droplets,
+  Layers, Paintbrush2, Square, Package, Boxes, Tag, Star, Award,
+};
+const ICON_KEYS = Object.keys(ICONS);
+
+function CatIcon({ name, size = 22, ...rest }) {
+  const Cmp = ICONS[name] || Package;
+  return <Cmp size={size} {...rest} />;
+}
+
+/* ============================================================
+   SEED DATA
+   ============================================================ */
+
+const CATEGORIES_SEED = [
+  { id: 'avtochimiya', name: 'Автохимия', icon: 'FlaskConical' },
+  { id: 'deteyling', name: 'Детейлинг', icon: 'Sparkles' },
+  { id: 'zhidkiy-tuman', name: 'Жидкий туман', icon: 'Cloud' },
+  { id: 'apparaty-himchistka', name: 'Аппараты для химчистки', icon: 'Settings2' },
+  { id: 'penogeneratory', name: 'Пеногенераторы', icon: 'Waves' },
+  { id: 'tornadory', name: 'Торнадоры', icon: 'Wind' },
+  { id: 'polirovalnye-pasty', name: 'Полировальные пасты', icon: 'Disc' },
+  { id: 'ochistiteli', name: 'Очистители', icon: 'Droplets' },
+  { id: 'mikrofibra', name: 'Микрофибра', icon: 'Layers' },
+  { id: 'shchetki', name: 'Щётки', icon: 'Paintbrush2' },
+  { id: 'gubki', name: 'Губки', icon: 'Square' },
+  { id: 'aksessuary', name: 'Аксессуары', icon: 'Package' },
+  { id: 'rashodnye-materialy', name: 'Расходные материалы', icon: 'Boxes' },
+];
+
+const BRANDS_SEED = ['AquaShine', 'ProDetail', 'CrystalCare', 'TornadoPro', 'FoamLab', 'PolishX'];
+
+let _sku = 1000;
+function p(name, categoryId, brand, price, opts = {}) {
+  _sku += 1;
+  return {
+    id: genId('prod'),
+    sku: 'DM-' + _sku,
+    name,
+    categoryId,
+    brand,
+    price,
+    discountPercent: opts.discountPercent || 0,
+    images: [],
+    description: opts.description || 'Профессиональное средство для тех, кто относится к уходу за автомобилем серьёзно. Подходит как для частного, так и для коммерческого использования.',
+    specs: opts.specs || [['Бренд', brand], ['Артикул', 'DM-' + _sku], ['Страна', 'Казахстан']],
+    stock: opts.stock === undefined ? 12 : opts.stock,
+    isHit: !!opts.isHit,
+    isNew: !!opts.isNew,
+  };
+}
+
+const PRODUCTS_SEED = [
+  p('Автошампунь-концентрат «Pure Foam» 1 л', 'avtochimiya', 'AquaShine', 4900, {
+    isHit: true, stock: 24,
+    description: 'Концентрированный шампунь с pH-нейтральной формулой бережно очищает кузов, не повреждая воск и керамические покрытия.',
+    specs: [['Объём', '1 л'], ['pH', 'нейтральный'], ['Расход', '1:200 — 1:400'], ['Бренд', 'AquaShine']],
+  }),
+  p('Чернение шин «Tire Black» 500 мл', 'avtochimiya', 'AquaShine', 3200, {
+    isNew: true, stock: 18,
+    description: 'Глубокий стойкий блеск для резины без эффекта «липкости». Устойчив к смыванию дождём.',
+    specs: [['Объём', '500 мл'], ['Стойкость', 'до 2 недель'], ['Бренд', 'AquaShine']],
+  }),
+  p('Полироль пластика салона 400 мл', 'deteyling', 'ProDetail', 3800, {
+    stock: 16,
+    description: 'Матовый финиш с защитой от УФ-излучения и эффекта выцветания торпедо и пластиковых панелей.',
+    specs: [['Объём', '400 мл'], ['Финиш', 'матовый'], ['Бренд', 'ProDetail']],
+  }),
+  p('Кондиционер для кожи салона 500 мл', 'deteyling', 'ProDetail', 5400, {
+    isHit: true, stock: 14,
+    description: 'Питает и защищает натуральную и экокожу, предотвращает растрескивание и сохраняет насыщенный цвет.',
+    specs: [['Объём', '500 мл'], ['Тип', 'для кожи и экокожи'], ['Бренд', 'ProDetail']],
+  }),
+  p('Жидкий туман «Ice Mist» для кондиционера 250 мл', 'zhidkiy-tuman', 'CrystalCare', 2900, {
+    isNew: true, stock: 22,
+    description: 'Профессиональная санитайзинг-обработка системы кондиционирования с лёгким холодным ароматом.',
+    specs: [['Объём', '250 мл'], ['Аромат', 'ледяная свежесть'], ['Бренд', 'CrystalCare']],
+  }),
+  p('Жидкий туман-ароматизатор «Black Tea» 250 мл', 'zhidkiy-tuman', 'CrystalCare', 2900, {
+    stock: 20,
+    description: 'Деликатный устойчивый аромат для салона, наносится через систему кондиционирования.',
+    specs: [['Объём', '250 мл'], ['Аромат', 'чёрный чай'], ['Бренд', 'CrystalCare']],
+  }),
+  p('Парогенератор для химчистки салона PRO-9000', 'apparaty-himchistka', 'TornadoPro', 189000, {
+    isHit: true, discountPercent: 10, stock: 4,
+    description: 'Профессиональный парогенератор высокого давления для глубокой и бережной химчистки салона без химии.',
+    specs: [['Давление пара', '8 бар'], ['Бак', '2.5 л'], ['Мощность', '3000 Вт'], ['Бренд', 'TornadoPro']],
+  }),
+  p('Экстрактор для химчистки ковров и салона X200', 'apparaty-himchistka', 'TornadoPro', 245000, {
+    stock: 3,
+    description: 'Моюще-пылесосная установка для удаления въевшихся загрязнений и пятен с тканевой обивки и ковров.',
+    specs: [['Бак для раствора', '9 л'], ['Мощность всасывания', '14 кПа'], ['Бренд', 'TornadoPro']],
+  }),
+  p('Пеногенератор «Snow Foam Lance»', 'penogeneratory', 'FoamLab', 18900, {
+    isHit: true, stock: 17,
+    description: 'Создаёт густую снежную пену для бесконтактной мойки, заметно снижая риск появления царапин.',
+    specs: [['Тип', 'для минимойки'], ['Бачок', '1 л'], ['Бренд', 'FoamLab']],
+  }),
+  p('Пеногенератор аккумуляторный «Foam Cannon Air»', 'penogeneratory', 'FoamLab', 32900, {
+    isNew: true, stock: 9,
+    description: 'Автономный пеногенератор без необходимости подключения к минимойке — питание от аккумулятора.',
+    specs: [['Аккумулятор', '12В, 2.5 Ач'], ['Бачок', '0.5 л'], ['Бренд', 'FoamLab']],
+  }),
+  p('Торнадор «Tornado Z-020» пневматический', 'tornadory', 'TornadoPro', 27500, {
+    isHit: true, stock: 11,
+    description: 'Профессиональный пневмопистолет для бесконтактной чистки труднодоступных мест салона.',
+    specs: [['Давление', '4–8 бар'], ['Тип', 'пневматический'], ['Бренд', 'TornadoPro']],
+  }),
+  p('Торнадор «Tornado Black» компактный', 'tornadory', 'TornadoPro', 19800, {
+    stock: 13,
+    description: 'Облегчённая версия для регулярного использования в детейлинг-студиях и мобильных бригадах.',
+    specs: [['Тип', 'пневматический'], ['Вес', '0.6 кг'], ['Бренд', 'TornadoPro']],
+  }),
+  p('Полировальная паста абразивная «Cut Compound» 500 г', 'polirovalnye-pasty', 'PolishX', 6900, {
+    stock: 15,
+    description: 'Активно удаляет глубокие царапины и окисление лакокрасочного покрытия перед финишной полировкой.',
+    specs: [['Масса', '500 г'], ['Абразивность', 'высокая'], ['Бренд', 'PolishX']],
+  }),
+  p('Полировальная паста финишная «Finishing Glaze» 500 г', 'polirovalnye-pasty', 'PolishX', 6900, {
+    isHit: true, stock: 15,
+    description: 'Придаёт зеркальный блеск и устраняет голограммы после абразивной полировки.',
+    specs: [['Масса', '500 г'], ['Абразивность', 'низкая'], ['Бренд', 'PolishX']],
+  }),
+  p('Очиститель дисков «Wheel Cleaner Gel» 1 л', 'ochistiteli', 'CrystalCare', 4400, {
+    stock: 19,
+    description: 'Гелевая формула с индикатором реакции эффективно растворяет тормозную пыль и въевшийся налёт.',
+    specs: [['Объём', '1 л'], ['pH', 'кислотный'], ['Бренд', 'CrystalCare']],
+  }),
+  p('Очиститель битумных пятен «Tar Remover» 500 мл', 'ochistiteli', 'CrystalCare', 3700, {
+    isNew: true, stock: 21,
+    description: 'Безопасно удаляет битумные пятна, следы насекомых и смолу с кузова и порогов.',
+    specs: [['Объём', '500 мл'], ['Бренд', 'CrystalCare']],
+  }),
+  p('Микрофибра для сушки кузова XL 90×60 см', 'mikrofibra', 'ProDetail', 6500, {
+    isHit: true, stock: 26,
+    description: 'Сверхвпитывающее плюшевое полотно с окантовкой, безопасное для свежей полировки и плёнки.',
+    specs: [['Размер', '90×60 см'], ['Плотность', '1200 г/м²'], ['Бренд', 'ProDetail']],
+  }),
+  p('Микрофибра для полировки, комплект 5 шт', 'mikrofibra', 'ProDetail', 4200, {
+    stock: 30,
+    description: 'Универсальный набор салфеток без окантовки для нанесения и снятия полиролей и восков.',
+    specs: [['Комплект', '5 шт'], ['Размер', '40×40 см'], ['Бренд', 'ProDetail']],
+  }),
+  p('Щётка для дисков мягкая «Wheel Brush»', 'shchetki', 'ProDetail', 2800, {
+    stock: 23,
+    description: 'Мягкий ворс безопасен для хромированных и окрашенных дисков, удобная длинная ручка.',
+    specs: [['Длина', '45 см'], ['Ворс', 'синтетика'], ['Бренд', 'ProDetail']],
+  }),
+  p('Набор щёток для салона, 3 шт', 'shchetki', 'ProDetail', 5600, {
+    isNew: true, stock: 14,
+    description: 'Комплект щёток разной жёсткости и формы для чистки текстиля, кожи и вентиляции.',
+    specs: [['Комплект', '3 шт'], ['Бренд', 'ProDetail']],
+  }),
+  p('Губка для мойки кузова, поролон', 'gubki', 'AquaShine', 1500, {
+    stock: 40,
+    description: 'Крупнопористая губка для бережного нанесения автошампуня без риска появления царапин.',
+    specs: [['Материал', 'поролон'], ['Бренд', 'AquaShine']],
+  }),
+  p('Аппликаторы для воска, набор 4 шт', 'gubki', 'AquaShine', 1900, {
+    stock: 35,
+    description: 'Поролоновые аппликаторы с удобным хватом для равномерного нанесения восков и составов.',
+    specs: [['Комплект', '4 шт'], ['Бренд', 'AquaShine']],
+  }),
+  p('Ведро детейлинг 20 л с защитной сеткой', 'aksessuary', 'ProDetail', 8900, {
+    isHit: true, stock: 12,
+    description: 'Сетка-сепаратор удерживает осадок на дне, защищая лакокрасочное покрытие от микроцарапин.',
+    specs: [['Объём', '20 л'], ['Комплектация', 'ведро + сетка'], ['Бренд', 'ProDetail']],
+  }),
+  p('Распылитель-триггер профессиональный 1 л', 'aksessuary', 'AquaShine', 1800, {
+    stock: 28,
+    description: 'Химически стойкий триггер с регулировкой факела для составов любой плотности.',
+    specs: [['Объём', '1 л'], ['Бренд', 'AquaShine']],
+  }),
+  p('Перчатки нитриловые, 50 шт', 'rashodnye-materialy', 'ProDetail', 3200, {
+    stock: 50,
+    description: 'Плотные перчатки повышенной химической стойкости для работы с концентратами.',
+    specs: [['Комплект', '50 шт'], ['Размер', 'M / L / XL'], ['Бренд', 'ProDetail']],
+  }),
+  p('Малярный скотч для детейлинга, 5 шт', 'rashodnye-materialy', 'ProDetail', 2400, {
+    stock: 0,
+    description: 'Не оставляет следов клея, используется для оклейки при полировке и оклейке плёнкой.',
+    specs: [['Комплект', '5 шт'], ['Бренд', 'ProDetail']],
+  }),
+];
+
+const SETTINGS_SEED = {
+  bannerActive: true,
+  bannerText: 'Бесплатная доставка по Алматы при заказе от 30 000 \u20B8',
+  adminPassword: 'diamond2026',
+};
+
+/* ============================================================
+   GLOBAL STYLES
+   ============================================================ */
+
+function GlobalStyles() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+      :root{
+        --bg:#ffffff;
+        --bg-soft:#F7F7F8;
+        --ink:#0A0A0A;
+        --ink-soft:#6E6E73;
+        --ink-faint:#A1A1A6;
+        --line:#E5E5EA;
+        --line-soft:#EFEFF1;
+        --ice-1:#EAF6FF;
+        --ice-2:#BFE0FF;
+        --ok:#1E8E3E;
+        --warn:#C97A1E;
+        --radius:14px;
+        --radius-sm:8px;
+        --maxw:1280px;
+        --ease:cubic-bezier(.22,1,.36,1);
+      }
+      *{box-sizing:border-box;}
+      html{scroll-behavior:smooth;}
+      body,html,#root{margin:0;padding:0;}
+      .diamond-app{
+        font-family:'Inter',-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Arial,sans-serif;
+        color:var(--ink);
+        background:var(--bg);
+        -webkit-font-smoothing:antialiased;
+        line-height:1.45;
+      }
+      .diamond-app *{ box-sizing:border-box; }
+      .diamond-app a{ color:inherit; text-decoration:none; }
+      .diamond-app button{ font-family:inherit; }
+      .diamond-app img{ display:block; max-width:100%; }
+      .diamond-app :focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
+      ::selection{ background:var(--ice-2); }
+
+      .container{ max-width:var(--maxw); margin:0 auto; padding:0 28px; }
+      @media(max-width:680px){ .container{ padding:0 18px; } }
+
+      .eyebrow{
+        font-size:12px; letter-spacing:.16em; text-transform:uppercase;
+        color:var(--ink-soft); font-weight:600; margin:0 0 14px;
+      }
+      .section{ padding:96px 0; }
+      .section-soft{ background:var(--bg-soft); }
+      @media(max-width:680px){ .section{ padding:60px 0; } }
+      .section-head{ max-width:680px; margin-bottom:48px; }
+      .section-head.center{ margin-left:auto; margin-right:auto; text-align:center; }
+      .section-title{ font-size:38px; font-weight:600; letter-spacing:-.02em; margin:0 0 14px; line-height:1.12; }
+      .section-sub{ font-size:17px; color:var(--ink-soft); margin:0; font-weight:400; }
+      @media(max-width:680px){ .section-title{ font-size:28px; } .section-sub{ font-size:15px; } }
+
+      .reveal{ opacity:0; transform:translateY(26px); transition:opacity .8s var(--ease), transform .8s var(--ease); }
+      .reveal.is-visible{ opacity:1; transform:translateY(0); }
+      @media(prefers-reduced-motion: reduce){ .reveal{ opacity:1; transform:none; transition:none; } }
+
+      .btn{
+        display:inline-flex; align-items:center; justify-content:center; gap:8px;
+        padding:13px 26px; border-radius:999px; font-size:15px; font-weight:500;
+        border:1px solid transparent; cursor:pointer; transition:transform .25s var(--ease), background .25s, border-color .25s, opacity .25s;
+        white-space:nowrap;
+      }
+      .btn:active{ transform:scale(.97); }
+      .btn-primary{ background:var(--ink); color:#fff; }
+      .btn-primary:hover{ background:#262628; }
+      .btn-primary:disabled{ opacity:.4; cursor:not-allowed; }
+      .btn-outline{ background:transparent; color:var(--ink); border-color:var(--ink); }
+      .btn-outline:hover{ background:var(--ink); color:#fff; }
+      .btn-ghost{ background:transparent; color:var(--ink); border-color:var(--line); }
+      .btn-ghost:hover{ border-color:var(--ink); }
+      .btn-sm{ padding:9px 16px; font-size:13px; }
+      .btn-block{ width:100%; }
+      .btn-danger{ background:#fff; color:#B3261E; border-color:#F0CFCB; }
+      .btn-danger:hover{ background:#FDF2F1; }
+      .btn-wa{ background:#25D366; color:#fff; }
+      .btn-wa:hover{ background:#1FB959; }
+
+      /* HEADER */
+      .site-header{
+        position:sticky; top:0; z-index:40; background:rgba(255,255,255,.86);
+        backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+        border-bottom:1px solid var(--line-soft);
+      }
+      .header-row{ display:flex; align-items:center; justify-content:space-between; height:68px; gap:18px; }
+      .brand{ display:flex; align-items:center; gap:10px; cursor:pointer; flex-shrink:0; }
+      .brand-word{ font-size:19px; font-weight:700; letter-spacing:.04em; }
+      .nav-desktop{ display:flex; align-items:center; gap:30px; flex:1; justify-content:center; }
+      .nav-link{ font-size:14.5px; color:var(--ink-soft); cursor:pointer; transition:color .2s; position:relative; padding:6px 0; }
+      .nav-link:hover, .nav-link.active{ color:var(--ink); }
+      .header-actions{ display:flex; align-items:center; gap:6px; flex-shrink:0; }
+      .icon-btn{
+        width:40px; height:40px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+        background:transparent; border:none; cursor:pointer; color:var(--ink); position:relative; transition:background .2s;
+      }
+      .icon-btn:hover{ background:var(--bg-soft); }
+      .cart-badge{
+        position:absolute; top:2px; right:2px; background:var(--ink); color:#fff; font-size:10px; font-weight:700;
+        min-width:16px; height:16px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 3px;
+      }
+      .search-wrap{ position:relative; display:flex; align-items:center; }
+      .search-input{
+        width:0; opacity:0; padding:0; border:none; background:var(--bg-soft); border-radius:999px;
+        font-size:14px; transition:width .3s var(--ease), opacity .2s, padding .3s var(--ease); height:38px;
+      }
+      .search-input.open{ width:230px; opacity:1; padding:0 16px; }
+      .search-results{
+        position:absolute; top:48px; right:0; width:320px; background:#fff; border:1px solid var(--line);
+        border-radius:var(--radius); box-shadow:0 16px 40px rgba(0,0,0,.12); overflow:hidden; z-index:50;
+      }
+      .search-result-row{ display:flex; gap:12px; align-items:center; padding:10px 14px; cursor:pointer; transition:background .15s; }
+      .search-result-row:hover{ background:var(--bg-soft); }
+      .search-result-thumb{ width:40px; height:40px; border-radius:8px; overflow:hidden; flex-shrink:0; }
+      .mobile-menu-btn{ display:none; }
+      @media(max-width:900px){
+        .nav-desktop{ display:none; }
+        .mobile-menu-btn{ display:inline-flex; }
+      }
+
+      .mobile-nav-overlay{
+        position:fixed; inset:0; background:#fff; z-index:70; padding:24px; overflow-y:auto;
+        animation:fadeIn .25s var(--ease);
+      }
+      .mobile-nav-row{ display:flex; align-items:center; justify-content:space-between; padding:16px 4px; border-bottom:1px solid var(--line-soft); font-size:17px; cursor:pointer; }
+      @keyframes fadeIn{ from{opacity:0;} to{opacity:1;} }
+
+      /* HERO */
+      .hero{
+        display:grid; grid-template-columns:1.1fr .9fr; align-items:center; gap:40px;
+        padding:64px 0 40px;
+      }
+      .hero-eyebrow{ font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-soft); font-weight:600; margin-bottom:18px; }
+      .hero h1{ font-size:62px; line-height:1.04; font-weight:600; letter-spacing:-.03em; margin:0 0 22px; }
+      .hero p{ font-size:18px; color:var(--ink-soft); max-width:480px; margin:0 0 34px; }
+      .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; }
+      .hero-stage{ aspect-ratio:1/1; width:100%; max-width:460px; justify-self:center; }
+      @media(max-width:980px){
+        .hero{ grid-template-columns:1fr; text-align:center; padding-top:32px; }
+        .hero p{ margin-left:auto; margin-right:auto; }
+        .hero-ctas{ justify-content:center; }
+        .hero h1{ font-size:42px; }
+        .hero-stage{ max-width:300px; margin-top:10px; }
+      }
+
+      .banner-strip{
+        background:var(--ink); color:#fff; text-align:center; font-size:13.5px; padding:10px 16px; letter-spacing:.02em;
+      }
+
+      /* CATEGORY GRID */
+      .grid-cats{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+      @media(max-width:980px){ .grid-cats{ grid-template-columns:repeat(3,1fr); } }
+      @media(max-width:680px){ .grid-cats{ grid-template-columns:repeat(2,1fr); gap:10px; } }
+      .cat-card{
+        border:1px solid var(--line); border-radius:var(--radius); padding:26px 18px; cursor:pointer;
+        display:flex; flex-direction:column; gap:14px; transition:border-color .25s, transform .25s var(--ease);
+        background:#fff;
+      }
+      .cat-card:hover{ border-color:var(--ink); transform:translateY(-3px); }
+      .cat-card .ic{ width:42px; height:42px; border-radius:50%; background:var(--bg-soft); display:flex; align-items:center; justify-content:center; }
+      .cat-card .cat-name{ font-size:14.5px; font-weight:500; }
+      .cat-card .cat-count{ font-size:12.5px; color:var(--ink-faint); }
+
+      /* PRODUCT GRID/CARD */
+      .grid-products{ display:grid; grid-template-columns:repeat(4,1fr); gap:22px 18px; }
+      @media(max-width:1080px){ .grid-products{ grid-template-columns:repeat(3,1fr); } }
+      @media(max-width:760px){ .grid-products{ grid-template-columns:repeat(2,1fr); gap:16px 12px; } }
+      .product-card{ cursor:pointer; display:flex; flex-direction:column; }
+      .product-photo{
+        aspect-ratio:1/1; width:100%; border-radius:var(--radius); overflow:hidden; position:relative;
+        background:linear-gradient(150deg,#F7F7F8,#FFFFFF 60%); border:1px solid var(--line-soft);
+        display:flex; align-items:center; justify-content:center; transition:border-color .25s;
+      }
+      .product-card:hover .product-photo{ border-color:var(--line); }
+      .product-photo img{ width:100%; height:100%; object-fit:cover; }
+      .product-photo .ph-icon{ color:var(--ink-faint); opacity:.55; }
+      .badges-row{ position:absolute; top:10px; left:10px; display:flex; gap:6px; flex-wrap:wrap; }
+      .badge{ font-size:10.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; padding:4px 9px; border-radius:999px; background:#fff; border:1px solid var(--line); }
+      .badge-hit{ background:var(--ink); color:#fff; border-color:var(--ink); }
+      .badge-new{ background:var(--ice-1); color:#1c3d5a; border-color:var(--ice-2); }
+      .badge-sale{ background:#fff; color:var(--ink); }
+      .badge-out{ position:absolute; inset:0; background:rgba(255,255,255,.72); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; color:var(--ink-soft); }
+      .product-info{ padding-top:14px; }
+      .product-cat{ font-size:11.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+      .product-name{ font-size:14.5px; font-weight:500; margin:0 0 8px; line-height:1.3; }
+      .price-row{ display:flex; align-items:baseline; gap:8px; }
+      .price-now{ font-size:15.5px; font-weight:600; }
+      .price-old{ font-size:13px; color:var(--ink-faint); text-decoration:line-through; }
+
+      /* FOOTER */
+      .site-footer{ border-top:1px solid var(--line-soft); padding:64px 0 28px; margin-top:40px; }
+      .footer-grid{ display:grid; grid-template-columns:1.4fr 1fr 1fr 1fr; gap:32px; margin-bottom:48px; }
+      @media(max-width:780px){ .footer-grid{ grid-template-columns:1fr 1fr; } }
+      .footer-col h4{ font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-faint); margin:0 0 16px; font-weight:600; }
+      .footer-col a, .footer-col .frow{ display:block; font-size:14px; color:var(--ink-soft); margin-bottom:10px; cursor:pointer; transition:color .2s; }
+      .footer-col a:hover{ color:var(--ink); }
+      .footer-bottom{ display:flex; justify-content:space-between; align-items:center; padding-top:24px; border-top:1px solid var(--line-soft); font-size:12.5px; color:var(--ink-faint); flex-wrap:wrap; gap:10px; }
+      .footer-bottom a{ color:var(--ink-faint); }
+      .footer-bottom a:hover{ color:var(--ink); }
+
+      /* WHATSAPP FLOAT */
+      .wa-float{
+        position:fixed; bottom:26px; right:26px; width:58px; height:58px; border-radius:50%;
+        background:#25D366; color:#fff; display:flex; align-items:center; justify-content:center;
+        box-shadow:0 10px 30px rgba(37,211,102,.4); z-index:60; transition:transform .25s var(--ease);
+      }
+      .wa-float:hover{ transform:scale(1.08); }
+
+      /* TOAST */
+      .toast{
+        position:fixed; bottom:28px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff;
+        padding:14px 22px; border-radius:999px; font-size:14px; z-index:80; display:flex; align-items:center; gap:10px;
+        animation:toastIn .35s var(--ease);
+      }
+      @keyframes toastIn{ from{ opacity:0; transform:translate(-50%,12px);} to{opacity:1; transform:translate(-50%,0);} }
+
+      /* WHY US */
+      .why-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line-soft); border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden; }
+      @media(max-width:900px){ .why-grid{ grid-template-columns:1fr 1fr; } }
+      @media(max-width:560px){ .why-grid{ grid-template-columns:1fr; } }
+      .why-card{ background:#fff; padding:34px 26px; }
+      .why-card .ic{ width:38px; height:38px; border-radius:50%; background:var(--bg-soft); display:flex; align-items:center; justify-content:center; margin-bottom:18px; }
+      .why-card h3{ font-size:16px; font-weight:600; margin:0 0 8px; }
+      .why-card p{ font-size:13.5px; color:var(--ink-soft); margin:0; }
+
+      /* DELIVERY */
+      .delivery-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+      @media(max-width:780px){ .delivery-grid{ grid-template-columns:1fr; } }
+      .delivery-card{ border:1px solid var(--line); border-radius:var(--radius); padding:28px; }
+      .delivery-card .ic{ width:40px; height:40px; border-radius:50%; background:var(--bg-soft); display:flex; align-items:center; justify-content:center; margin-bottom:18px; }
+      .delivery-card h3{ font-size:16px; font-weight:600; margin:0 0 8px; }
+      .delivery-card p{ font-size:13.5px; color:var(--ink-soft); margin:0 0 4px; }
+
+      /* BRANDS */
+      .brands-row{ display:flex; flex-wrap:wrap; gap:12px; }
+      .brand-chip{ border:1px solid var(--line); border-radius:999px; padding:11px 22px; font-size:14px; font-weight:500; color:var(--ink-soft); }
+
+      /* CONTACTS PREVIEW / PAGE */
+      .contact-card{ border:1px solid var(--line); border-radius:var(--radius); padding:36px; display:flex; flex-direction:column; gap:18px; }
+      .contact-row{ display:flex; align-items:center; gap:14px; font-size:16px; }
+      .contact-row .ic{ width:38px; height:38px; border-radius:50%; background:var(--bg-soft); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+      .map-placeholder{
+        border:1px solid var(--line); border-radius:var(--radius); aspect-ratio:16/9; background:
+          radial-gradient(circle at 30% 30%, var(--ice-1), transparent 60%), var(--bg-soft);
+        display:flex; align-items:center; justify-content:center; flex-direction:column; gap:8px; color:var(--ink-soft); font-size:13px;
+      }
+
+      /* BREADCRUMB */
+      .breadcrumb{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink-faint); margin-bottom:28px; flex-wrap:wrap; }
+      .breadcrumb a{ cursor:pointer; }
+      .breadcrumb a:hover{ color:var(--ink); }
+
+      /* CATALOG */
+      .catalog-layout{ display:grid; grid-template-columns:240px 1fr; gap:40px; align-items:start; }
+      @media(max-width:880px){ .catalog-layout{ grid-template-columns:1fr; } }
+      .cat-sidebar{ position:sticky; top:90px; display:flex; flex-direction:column; gap:2px; }
+      @media(max-width:880px){
+        .cat-sidebar{ position:static; flex-direction:row; overflow-x:auto; gap:8px; padding-bottom:8px; }
+      }
+      .cat-sidebar-item{
+        display:flex; align-items:center; justify-content:space-between; gap:8px; padding:11px 12px; border-radius:var(--radius-sm);
+        font-size:14px; color:var(--ink-soft); cursor:pointer; transition:background .2s,color .2s; white-space:nowrap;
+      }
+      .cat-sidebar-item:hover{ background:var(--bg-soft); color:var(--ink); }
+      .cat-sidebar-item.active{ background:var(--ink); color:#fff; }
+      .catalog-toolbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:12px; flex-wrap:wrap; }
+      .select-min{ border:1px solid var(--line); border-radius:999px; padding:9px 16px; font-size:13.5px; background:#fff; color:var(--ink); cursor:pointer; }
+      .empty-state{ text-align:center; padding:80px 20px; color:var(--ink-soft); }
+
+      /* PRODUCT PAGE */
+      .product-layout{ display:grid; grid-template-columns:1fr 1fr; gap:56px; align-items:flex-start; }
+      @media(max-width:900px){ .product-layout{ grid-template-columns:1fr; gap:28px; } }
+      .gallery-main{ aspect-ratio:1/1; border-radius:var(--radius); border:1px solid var(--line-soft); overflow:hidden; background:linear-gradient(150deg,#F7F7F8,#fff 60%); display:flex; align-items:center; justify-content:center; position:relative; }
+      .gallery-main img{ width:100%; height:100%; object-fit:cover; }
+      .gallery-thumbs{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+      .gallery-thumb{ width:64px; height:64px; border-radius:10px; border:1.5px solid var(--line); overflow:hidden; cursor:pointer; background:var(--bg-soft); display:flex; align-items:center; justify-content:center; }
+      .gallery-thumb.active{ border-color:var(--ink); }
+      .gallery-thumb img{ width:100%; height:100%; object-fit:cover; }
+      .pp-cat{ font-size:13px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; }
+      .pp-title{ font-size:30px; font-weight:600; letter-spacing:-.02em; margin:0 0 16px; line-height:1.2; }
+      .pp-price{ font-size:28px; font-weight:600; margin-bottom:6px; }
+      .stock-line{ display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:26px; }
+      .dot{ width:8px; height:8px; border-radius:50%; }
+      .dot-ok{ background:var(--ok); }
+      .dot-out{ background:var(--ink-faint); }
+      .qty-row{ display:flex; align-items:center; border:1px solid var(--line); border-radius:999px; overflow:hidden; width:fit-content; }
+      .qty-row button{ width:38px; height:38px; background:none; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+      .qty-row button:disabled{ opacity:.3; cursor:not-allowed; }
+      .qty-row span{ width:36px; text-align:center; font-size:14px; font-weight:600; }
+      .pp-actions{ display:flex; gap:12px; margin:24px 0; flex-wrap:wrap; }
+      .tabs-row{ display:flex; gap:24px; border-bottom:1px solid var(--line); margin:36px 0 20px; }
+      .tab-btn{ background:none; border:none; padding:12px 2px; font-size:14.5px; color:var(--ink-faint); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+      .tab-btn.active{ color:var(--ink); border-color:var(--ink); font-weight:500; }
+      .specs-table{ width:100%; border-collapse:collapse; }
+      .specs-table tr{ border-bottom:1px solid var(--line-soft); }
+      .specs-table td{ padding:12px 4px; font-size:14px; }
+      .specs-table td:first-child{ color:var(--ink-soft); width:45%; }
+
+      /* CART */
+      .cart-row{ display:grid; grid-template-columns:80px 1fr auto auto; gap:16px; align-items:center; padding:20px 0; border-bottom:1px solid var(--line-soft); }
+      @media(max-width:600px){ .cart-row{ grid-template-columns:60px 1fr; row-gap:10px; } .cart-row .qty-col, .cart-row .sum-col{ grid-column:2; } }
+      .cart-thumb{ width:80px; height:80px; border-radius:10px; overflow:hidden; background:var(--bg-soft); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+      .cart-thumb img{ width:100%; height:100%; object-fit:cover; }
+      .cart-summary{ border:1px solid var(--line); border-radius:var(--radius); padding:28px; position:sticky; top:90px; }
+      .summary-line{ display:flex; justify-content:space-between; font-size:14.5px; margin-bottom:12px; color:var(--ink-soft); }
+      .summary-total{ display:flex; justify-content:space-between; font-size:18px; font-weight:600; padding-top:14px; border-top:1px solid var(--line); margin-top:14px; margin-bottom:22px; }
+
+      /* FORMS */
+      .field{ margin-bottom:18px; }
+      .field label{ display:block; font-size:13px; color:var(--ink-soft); margin-bottom:7px; font-weight:500; }
+      .field input, .field select, .field textarea{
+        width:100%; border:1px solid var(--line); border-radius:var(--radius-sm); padding:12px 14px; font-size:14.5px;
+        font-family:inherit; background:#fff; color:var(--ink); transition:border-color .2s;
+      }
+      .field input:focus, .field select:focus, .field textarea:focus{ border-color:var(--ink); outline:none; }
+      .field textarea{ resize:vertical; min-height:90px; }
+      .field-error{ color:#B3261E; font-size:12.5px; margin-top:6px; }
+      .field-row2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+      @media(max-width:560px){ .field-row2{ grid-template-columns:1fr; } }
+      .check-field{ display:flex; align-items:center; gap:10px; font-size:14px; margin-bottom:14px; cursor:pointer; }
+
+      /* MODAL */
+      .modal-overlay{ position:fixed; inset:0; background:rgba(10,10,10,.45); backdrop-filter:blur(2px); z-index:90; display:flex; align-items:center; justify-content:center; padding:20px; animation:fadeIn .2s var(--ease); }
+      .modal-card{ background:#fff; border-radius:18px; padding:32px; width:100%; max-width:440px; max-height:88vh; overflow-y:auto; position:relative; }
+      .modal-card.wide{ max-width:760px; }
+      .modal-close{ position:absolute; top:18px; right:18px; }
+
+      /* ADMIN */
+      .admin-shell{ min-height:100vh; background:var(--bg-soft); }
+      .admin-top{ height:64px; display:flex; align-items:center; justify-content:space-between; background:#fff; border-bottom:1px solid var(--line); padding:0 28px; position:sticky; top:0; z-index:30; }
+      .admin-body{ padding:32px 28px 80px; max-width:1180px; margin:0 auto; }
+      .admin-tabs{ display:flex; gap:6px; margin-bottom:28px; flex-wrap:wrap; }
+      .admin-tab{ padding:10px 18px; border-radius:999px; font-size:13.5px; cursor:pointer; background:#fff; border:1px solid var(--line); color:var(--ink-soft); }
+      .admin-tab.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+      .admin-card{ background:#fff; border:1px solid var(--line); border-radius:var(--radius); padding:24px; margin-bottom:18px; }
+      .admin-table{ width:100%; border-collapse:collapse; }
+      .admin-table th{ text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); padding:10px 12px; border-bottom:1px solid var(--line); }
+      .admin-table td{ padding:12px; font-size:13.5px; border-bottom:1px solid var(--line-soft); vertical-align:middle; }
+      .admin-table tr:hover td{ background:var(--bg-soft); }
+      .admin-thumb{ width:40px; height:40px; border-radius:8px; background:var(--bg-soft); overflow:hidden; display:flex; align-items:center; justify-content:center; }
+      .admin-thumb img{ width:100%; height:100%; object-fit:cover; }
+      .row-actions{ display:flex; gap:6px; }
+      .icon-action{ width:30px; height:30px; border-radius:8px; border:1px solid var(--line); background:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+      .icon-action:hover{ border-color:var(--ink); }
+      .status-pill{ font-size:11.5px; font-weight:600; padding:4px 10px; border-radius:999px; display:inline-block; }
+      .status-new{ background:var(--ice-1); color:#1c3d5a; }
+      .status-processing{ background:#FFF3DC; color:#8A5A00; }
+      .status-done{ background:#E6F4EA; color:#1E8E3E; }
+      .status-cancelled{ background:#FBEAE9; color:#B3261E; }
+      .icon-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:8px; }
+      .icon-grid button{ width:36px; height:36px; border-radius:9px; border:1px solid var(--line); background:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+      .icon-grid button.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
+      .loading-screen{ height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; }
+      .pulse{ animation:pulse 1.6s ease-in-out infinite; }
+      @keyframes pulse{ 0%,100%{ opacity:.35; } 50%{ opacity:1; } }
+
+      .helper-text{ font-size:12.5px; color:var(--ink-faint); margin-top:6px; }
+    `}</style>
+  );
+}
+
+/* ============================================================
+   DIAMOND VISUALS
+   ============================================================ */
+
+function DiamondMark({ size = 26 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="dmTop" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#F2FAFF" />
+          <stop offset="100%" stopColor="#BFE0FF" />
+        </linearGradient>
+        <linearGradient id="dmBody" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#2c2c2e" />
+          <stop offset="100%" stopColor="#0A0A0A" />
+        </linearGradient>
+      </defs>
+      <polygon points="6,16 24,4 42,16 24,16" fill="url(#dmTop)" />
+      <polygon points="6,16 24,16 17,29" fill="#1c1c1e" opacity=".92" />
+      <polygon points="24,16 42,16 31,29" fill="#0A0A0A" opacity=".82" />
+      <polygon points="17,29 24,16 31,29 24,44" fill="url(#dmBody)" />
+    </svg>
+  );
+}
+
+function Diamond3D({ size = 360 }) {
+  const mountRef = useRef(null);
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount || typeof window === 'undefined') return;
+
+    let width = mount.clientWidth || size;
+    let height = mount.clientHeight || size;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
+    camera.position.set(0, 0.1, 5.4);
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    } catch (e) {
+      return;
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(width, height);
+    mount.appendChild(renderer.domElement);
+
+    const group = new THREE.Group();
+    scene.add(group);
+
+    const geometry = new THREE.IcosahedronGeometry(1.35, 0);
+    geometry.scale(0.78, 1.32, 0.78);
+    const material = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      metalness: 0.18,
+      roughness: 0.07,
+      clearcoat: 1,
+      clearcoatRoughness: 0.1,
+      flatShading: true,
+      reflectivity: 1,
+    });
+    const gem = new THREE.Mesh(geometry, material);
+    group.add(gem);
+
+    const edges = new THREE.EdgesGeometry(geometry);
+    const wireMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
+    const wire = new THREE.LineSegments(edges, wireMat);
+    group.add(wire);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const key = new THREE.PointLight(0xffffff, 2.2, 30);
+    key.position.set(4, 5, 5);
+    scene.add(key);
+    const fillBlue = new THREE.PointLight(0x9fd1ff, 1.7, 30);
+    fillBlue.position.set(-4, -2, 3);
+    scene.add(fillBlue);
+    const rim = new THREE.PointLight(0xffffff, 1.1, 30);
+    rim.position.set(0, -4, -3);
+    scene.add(rim);
+
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    let frameId;
+    let t = 0;
+    const animate = () => {
+      t += 1;
+      if (!reduceMotion) {
+        group.rotation.y += 0.0065;
+        group.rotation.x = Math.sin(t * 0.004) * 0.12;
+      } else {
+        group.rotation.y = 0.5;
+        group.rotation.x = 0.1;
+      }
+      renderer.render(scene, camera);
+      frameId = requestAnimationFrame(animate);
+    };
+    animate();
+
+    const handleResize = () => {
+      width = mount.clientWidth || size;
+      height = mount.clientHeight || size;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+    };
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(handleResize);
+      ro.observe(mount);
+    } else {
+      window.addEventListener('resize', handleResize);
+    }
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      if (ro) ro.disconnect(); else window.removeEventListener('resize', handleResize);
+      geometry.dispose();
+      material.dispose();
+      edges.dispose();
+      wireMat.dispose();
+      renderer.dispose();
+      if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
+    };
+  }, [size]);
+
+  return <div ref={mountRef} className="hero-stage" style={{ width: '100%', height: '100%' }} />;
+}
+
+/* ============================================================
+   SMALL REUSABLE PIECES
+   ============================================================ */
+
+function Reveal({ as: As = 'div', className, children, ...rest }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add('is-visible');
+            io.unobserve(e.target);
+          }
+        });
+      },
+      { threshold: 0.12 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <As ref={ref} className={cls('reveal', className)} {...rest}>
+      {children}
+    </As>
+  );
+}
+
+function SectionHead({ eyebrow, title, sub, center }) {
+  return (
+    <div className={cls('section-head', center && 'center')}>
+      {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+      <h2 className="section-title">{title}</h2>
+      {sub && <p className="section-sub">{sub}</p>}
+    </div>
+  );
+}
+
+function ProductImage({ product, iconSize = 46 }) {
+  const img = product.images && product.images[0];
+  if (img) return <img src={img} alt={product.name} />;
+  const cat = CATEGORIES_SEED.find((c) => c.id === product.categoryId);
+  return <CatIcon name={cat ? cat.icon : 'Package'} size={iconSize} className="ph-icon" />;
+}
+
+function ProductBadges({ product }) {
+  return (
+    <div className="badges-row">
+      {product.isHit && <span className="badge badge-hit">Хит</span>}
+      {product.isNew && <span className="badge badge-new">Новинка</span>}
+      {product.discountPercent > 0 && <span className="badge badge-sale">−{product.discountPercent}%</span>}
+    </div>
+  );
+}
+
+function ProductCard({ product, categories, onOpen }) {
+  const cat = categories.find((c) => c.id === product.categoryId);
+  const price = finalPrice(product);
+  return (
+    <div className="product-card" onClick={() => onOpen(product.id)}>
+      <div className="product-photo">
+        <ProductImage product={product} />
+        <ProductBadges product={product} />
+        {product.stock <= 0 && <div className="badge-out">Нет в наличии</div>}
+      </div>
+      <div className="product-info">
+        <p className="product-cat">{cat ? cat.name : ''}</p>
+        <p className="product-name">{product.name}</p>
+        <div className="price-row">
+          <span className="price-now">{formatPrice(price)}</span>
+          {product.discountPercent > 0 && <span className="price-old">{formatPrice(product.price)}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   HEADER / FOOTER / FLOATING
+   ============================================================ */
+
+function Header({ go, view, categories, products, cartCount, query, setQuery }) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const blurTimer = useRef(null);
+
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.trim().toLowerCase();
+    return products.filter((p2) => p2.name.toLowerCase().includes(q)).slice(0, 5);
+  }, [query, products]);
+
+  const handleSubmitSearch = (e) => {
+    e.preventDefault();
+    setResultsOpen(false);
+    go('catalog', { search: query });
+  };
+
+  const navItems = [
+    { key: 'home', label: 'Главная' },
+    { key: 'catalog', label: 'Каталог' },
+    { key: 'delivery', label: 'Доставка' },
+    { key: 'contacts', label: 'Контакты' },
+  ];
+
+  return (
+    <header className="site-header">
+      <div className="container header-row">
+        <div className="brand" onClick={() => go('home')}>
+          <DiamondMark size={26} />
+          <span className="brand-word">{STORE_NAME}</span>
+        </div>
+
+        <nav className="nav-desktop">
+          {navItems.map((n) => (
+            <span
+              key={n.key}
+              className={cls('nav-link', view === n.key && 'active')}
+              onClick={() => go(n.key)}
+            >
+              {n.label}
+            </span>
+          ))}
+        </nav>
+
+        <div className="header-actions">
+          <div className="search-wrap">
+            <form onSubmit={handleSubmitSearch}>
+              <input
+                className={cls('search-input', searchOpen && 'open')}
+                placeholder="Поиск товаров…"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setResultsOpen(true); }}
+                onFocus={() => setResultsOpen(true)}
+                onBlur={() => { blurTimer.current = setTimeout(() => setResultsOpen(false), 150); }}
+              />
+            </form>
+            {searchOpen && resultsOpen && results.length > 0 && (
+              <div className="search-results" onMouseDown={(e) => e.preventDefault()}>
+                {results.map((r) => (
+                  <div key={r.id} className="search-result-row" onClick={() => { go('product', { id: r.id }); setResultsOpen(false); setQuery(''); }}>
+                    <div className="search-result-thumb"><ProductImage product={r} iconSize={20} /></div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{formatPrice(finalPrice(r))}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="icon-btn" aria-label="Поиск" onClick={() => setSearchOpen((s) => !s)}>
+            <Search size={19} />
+          </button>
+          <button className="icon-btn" aria-label="Корзина" onClick={() => go('cart')}>
+            <ShoppingCart size={19} />
+            {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
+          </button>
+          <button className="icon-btn mobile-menu-btn" aria-label="Меню" onClick={() => setMobileOpen(true)}>
+            <Menu size={20} />
+          </button>
+        </div>
+      </div>
+
+      {mobileOpen && (
+        <div className="mobile-nav-overlay">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div className="brand"><DiamondMark size={24} /><span className="brand-word">{STORE_NAME}</span></div>
+            <button className="icon-btn" onClick={() => setMobileOpen(false)}><X size={22} /></button>
+          </div>
+          {navItems.map((n) => (
+            <div key={n.key} className="mobile-nav-row" onClick={() => { go(n.key); setMobileOpen(false); }}>
+              {n.label} <ChevronRight size={16} />
+            </div>
+          ))}
+          <p style={{ fontSize: 12, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '24px 4px 8px' }}>Категории</p>
+          {categories.map((c) => (
+            <div key={c.id} className="mobile-nav-row" onClick={() => { go('catalog', { category: c.id }); setMobileOpen(false); }}>
+              {c.name} <ChevronRight size={16} />
+            </div>
+          ))}
+        </div>
+      )}
+    </header>
+  );
+}
+
+function Footer({ go, categories, settings }) {
+  return (
+    <footer className="site-footer">
+      <div className="container">
+        <div className="footer-grid">
+          <div className="footer-col">
+            <div className="brand" style={{ marginBottom: 14 }}>
+              <DiamondMark size={24} />
+              <span className="brand-word">{STORE_NAME}</span>
+            </div>
+            <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', maxWidth: 260 }}>
+              Профессиональная автохимия и детейлинг-оборудование для тех, кто не идёт на компромиссы в деталях.
+            </p>
+          </div>
+          <div className="footer-col">
+            <h4>Каталог</h4>
+            {categories.slice(0, 5).map((c) => (
+              <a key={c.id} onClick={() => go('catalog', { category: c.id })}>{c.name}</a>
+            ))}
+          </div>
+          <div className="footer-col">
+            <h4>Компания</h4>
+            <a onClick={() => go('home')}>Почему DIAMOND</a>
+            <a onClick={() => go('delivery')}>Доставка по Казахстану</a>
+            <a onClick={() => go('contacts')}>Контакты</a>
+          </div>
+          <div className="footer-col">
+            <h4>Контакты</h4>
+            <a href={`tel:${digitsOnly(CONTACT_PHONE_DISPLAY)}`}>{CONTACT_PHONE_DISPLAY}</a>
+            <a href={waLink('Здравствуйте! Есть вопрос по товарам DIAMOND.')} target="_blank" rel="noopener noreferrer">Написать в WhatsApp</a>
+            <span className="frow">Алматы, Казахстан</span>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          <span>© 2026 {STORE_NAME}. Все права защищены.</span>
+          <a onClick={() => go('admin')}>Панель управления</a>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function WhatsAppFloat() {
+  return (
+    <a
+      className="wa-float"
+      href={waLink('Здравствуйте! Хочу узнать подробнее о товарах DIAMOND.')}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Написать в WhatsApp"
+    >
+      <MessageCircle size={25} />
+    </a>
+  );
+}
+
+function Toast({ message }) {
+  if (!message) return null;
+  return (
+    <div className="toast">
+      <Check size={16} /> {message}
+    </div>
+  );
+}
+
+/* ============================================================
+   HOME PAGE
+   ============================================================ */
+
+function HomePage({ go, products, categories, settings }) {
+  const hits = products.filter((p2) => p2.isHit).slice(0, 8);
+  const news = products.filter((p2) => p2.isNew).slice(0, 8);
+
+  return (
+    <div>
+      {settings.bannerActive && settings.bannerText && (
+        <div className="banner-strip">{settings.bannerText}</div>
+      )}
+
+      <section className="container hero">
+        <div>
+          <p className="hero-eyebrow">Премиальная автохимия и детейлинг</p>
+          <h1>Чистота,<br />доведённая до блеска.</h1>
+          <p>Профессиональная автохимия, инструменты и расходные материалы для тех, кто не идёт на компромиссы в деталях.</p>
+          <div className="hero-ctas">
+            <button className="btn btn-primary" onClick={() => go('catalog')}>Перейти в каталог <ArrowRight size={16} /></button>
+            <button className="btn btn-outline" onClick={() => go('catalog', { hits: true })}>Хиты продаж</button>
+          </div>
+        </div>
+        <Diamond3D />
+      </section>
+
+      <Reveal as="section" className="section">
+        <div className="container">
+          <SectionHead eyebrow="Каталог" title="Категории товаров" sub="13 направлений — от автохимии до расходных материалов." />
+          <div className="grid-cats">
+            {categories.map((c) => {
+              const count = products.filter((p2) => p2.categoryId === c.id).length;
+              return (
+                <div key={c.id} className="cat-card" onClick={() => go('catalog', { category: c.id })}>
+                  <div className="ic"><CatIcon name={c.icon} size={20} /></div>
+                  <div>
+                    <div className="cat-name">{c.name}</div>
+                    <div className="cat-count">{count} товаров</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Reveal>
+
+      {hits.length > 0 && (
+        <Reveal as="section" className="section section-soft">
+          <div className="container">
+            <SectionHead eyebrow="Продажи" title="Хиты продаж" sub="Товары, которые выбирают чаще всего." />
+            <div className="grid-products">
+              {hits.map((p2) => <ProductCard key={p2.id} product={p2} categories={categories} onOpen={(id) => go('product', { id })} />)}
+            </div>
+          </div>
+        </Reveal>
+      )}
+
+      {news.length > 0 && (
+        <Reveal as="section" className="section">
+          <div className="container">
+            <SectionHead eyebrow="Обновление каталога" title="Новинки" sub="Только что появилось на складе." />
+            <div className="grid-products">
+              {news.map((p2) => <ProductCard key={p2.id} product={p2} categories={categories} onOpen={(id) => go('product', { id })} />)}
+            </div>
+          </div>
+        </Reveal>
+      )}
+
+      <Reveal as="section" className="section section-soft">
+        <div className="container">
+          <SectionHead eyebrow="Партнёры" title="Бренды" sub="Работаем напрямую с производителями." />
+          <div className="brands-row">
+            {BRANDS_SEED.map((b) => <span key={b} className="brand-chip">{b}</span>)}
+          </div>
+        </div>
+      </Reveal>
+
+      <Reveal as="section" className="section">
+        <div className="container">
+          <SectionHead eyebrow="Доверие" title="Почему выбирают DIAMOND" center />
+          <div className="why-grid">
+            <div className="why-card">
+              <div className="ic"><ShieldCheck size={18} /></div>
+              <h3>Оригинальная продукция</h3>
+              <p>Работаем напрямую с производителями и проверяем каждую партию перед отправкой.</p>
+            </div>
+            <div className="why-card">
+              <div className="ic"><Truck size={18} /></div>
+              <h3>Доставка по Казахстану</h3>
+              <p>Отправляем в любой регион страны — от Алматы до самых отдалённых городов.</p>
+            </div>
+            <div className="why-card">
+              <div className="ic"><MessageCircle size={18} /></div>
+              <h3>Консультация специалиста</h3>
+              <p>Поможем подобрать состав и инструмент под конкретную задачу — от мойки до полировки.</p>
+            </div>
+            <div className="why-card">
+              <div className="ic"><Award size={18} /></div>
+              <h3>Гарантия и возврат</h3>
+              <p>Обмен и возврат в течение 14 дней, если товар не подошёл.</p>
+            </div>
+          </div>
+        </div>
+      </Reveal>
+
+      <Reveal as="section" className="section section-soft" id="delivery-preview">
+        <div className="container">
+          <SectionHead eyebrow="Логистика" title="Доставка по Казахстану" />
+          <DeliveryCards />
+        </div>
+      </Reveal>
+
+      <Reveal as="section" className="section">
+        <div className="container">
+          <SectionHead eyebrow="Связь" title="Контакты" />
+          <ContactCardCompact go={go} />
+        </div>
+      </Reveal>
+    </div>
+  );
+}
+
+function DeliveryCards() {
+  return (
+    <div className="delivery-grid">
+      <div className="delivery-card">
+        <div className="ic"><MapPin size={18} /></div>
+        <h3>Самовывоз</h3>
+        <p>г. Алматы — бесплатно</p>
+        <p>В день заказа, после подтверждения наличия</p>
+      </div>
+      <div className="delivery-card">
+        <div className="ic"><Truck size={18} /></div>
+        <h3>Курьер по Алматы</h3>
+        <p>Бесплатно при заказе от 30 000 ₸</p>
+        <p>1–2 дня</p>
+      </div>
+      <div className="delivery-card">
+        <div className="ic"><Package size={18} /></div>
+        <h3>По Казахстану</h3>
+        <p>СДЭК / Казпочта, оплата при получении</p>
+        <p>2–5 дней в зависимости от региона</p>
+      </div>
+    </div>
+  );
+}
+
+function ContactCardCompact({ go }) {
+  return (
+    <div className="contact-card" style={{ maxWidth: 480 }}>
+      <div className="contact-row"><div className="ic"><Building2 size={17} /></div> {CONTACT_NAME}, DIAMOND</div>
+      <div className="contact-row"><div className="ic"><Phone size={17} /></div> <a href={`tel:${digitsOnly(CONTACT_PHONE_DISPLAY)}`}>{CONTACT_PHONE_DISPLAY}</a></div>
+      <div className="contact-row"><div className="ic"><MapPin size={17} /></div> Алматы, Казахстан</div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <a className="btn btn-wa" href={waLink('Здравствуйте! Хочу сделать заказ в DIAMOND.')} target="_blank" rel="noopener noreferrer">
+          <MessageCircle size={16} /> WhatsApp
+        </a>
+        <button className="btn btn-ghost" onClick={() => go('contacts')}>Все контакты</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   DELIVERY PAGE
+   ============================================================ */
+
+function DeliveryPage({ go }) {
+  return (
+    <div className="container" style={{ padding: '56px 28px 100px' }}>
+      <Breadcrumb go={go} items={[{ label: 'Главная', view: 'home' }, { label: 'Доставка' }]} />
+      <SectionHead eyebrow="Логистика" title="Доставка по Казахстану" sub="Отправляем заказы в любой город страны." />
+      <DeliveryCards />
+      <Reveal style={{ marginTop: 48 }}>
+        <SectionHead title="Оплата" sub="" />
+        <ul style={{ fontSize: 14.5, color: 'var(--ink-soft)', lineHeight: 2, paddingLeft: 18 }}>
+          <li>Наличными курьеру при получении в Алматы</li>
+          <li>Безналичный перевод по реквизитам компании</li>
+          <li>Оплата при получении в отделении СДЭК / Казпочты</li>
+        </ul>
+      </Reveal>
+    </div>
+  );
+}
+
+function Breadcrumb({ go, items }) {
+  return (
+    <div className="breadcrumb">
+      {items.map((it, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <ChevronRight size={12} />}
+          {it.view ? <a onClick={() => go(it.view, it.params)}>{it.label}</a> : <span>{it.label}</span>}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+/* ============================================================
+   CATALOG PAGE
+   ============================================================ */
+
+function CatalogPage({ go, products, categories, params }) {
+  const [activeCategory, setActiveCategory] = useState(params.category || null);
+  const [sort, setSort] = useState('default');
+  const [search, setSearch] = useState(params.search || '');
+  const onlyHits = !!params.hits;
+
+  useEffect(() => {
+    setActiveCategory(params.category || null);
+    setSearch(params.search || '');
+  }, [params.category, params.search]);
+
+  const filtered = useMemo(() => {
+    let list = [...products];
+    if (activeCategory) list = list.filter((p2) => p2.categoryId === activeCategory);
+    if (onlyHits) list = list.filter((p2) => p2.isHit);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((p2) => p2.name.toLowerCase().includes(q));
+    }
+    if (sort === 'price-asc') list.sort((a, b) => finalPrice(a) - finalPrice(b));
+    if (sort === 'price-desc') list.sort((a, b) => finalPrice(b) - finalPrice(a));
+    return list;
+  }, [products, activeCategory, search, sort, onlyHits]);
+
+  const activeCatObj = categories.find((c) => c.id === activeCategory);
+
+  return (
+    <div className="container" style={{ padding: '40px 28px 100px' }}>
+      <Breadcrumb go={go} items={[{ label: 'Главная', view: 'home' }, { label: activeCatObj ? activeCatObj.name : 'Каталог' }]} />
+      <div className="catalog-layout">
+        <aside className="cat-sidebar">
+          <div className={cls('cat-sidebar-item', !activeCategory && !onlyHits && 'active')} onClick={() => go('catalog')}>
+            Все товары
+          </div>
+          {categories.map((c) => (
+            <div
+              key={c.id}
+              className={cls('cat-sidebar-item', activeCategory === c.id && 'active')}
+              onClick={() => go('catalog', { category: c.id })}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CatIcon name={c.icon} size={15} />{c.name}</span>
+            </div>
+          ))}
+        </aside>
+
+        <div>
+          <div className="catalog-toolbar">
+            <span style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>{filtered.length} товаров</span>
+            <select className="select-min" value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="default">По умолчанию</option>
+              <option value="price-asc">Сначала дешевле</option>
+              <option value="price-desc">Сначала дороже</option>
+            </select>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="empty-state">
+              <p>Ничего не найдено по этому запросу.</p>
+              <button className="btn btn-outline" style={{ marginTop: 16 }} onClick={() => go('catalog')}>Сбросить фильтры</button>
+            </div>
+          ) : (
+            <div className="grid-products">
+              {filtered.map((p2) => <ProductCard key={p2.id} product={p2} categories={categories} onOpen={(id) => go('product', { id })} />)}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   PRODUCT PAGE
+   ============================================================ */
+
+function ProductPage({ go, products, categories, params, onAddToCart, onQuickBuy }) {
+  const product = products.find((p2) => p2.id === params.id);
+  const [tab, setTab] = useState('desc');
+  const [qty, setQty] = useState(1);
+  const [activeImg, setActiveImg] = useState(0);
+
+  useEffect(() => { setQty(1); setActiveImg(0); setTab('desc'); }, [params.id]);
+
+  if (!product) {
+    return (
+      <div className="container empty-state" style={{ padding: '100px 28px' }}>
+        <p>Товар не найден.</p>
+        <button className="btn btn-outline" style={{ marginTop: 16 }} onClick={() => go('catalog')}>В каталог</button>
+      </div>
+    );
+  }
+
+  const cat = categories.find((c) => c.id === product.categoryId);
+  const price = finalPrice(product);
+  const inStock = product.stock > 0;
+  const images = product.images && product.images.length > 0 ? product.images : [null];
+  const related = products.filter((p2) => p2.categoryId === product.categoryId && p2.id !== product.id).slice(0, 4);
+
+  return (
+    <div className="container" style={{ padding: '40px 28px 100px' }}>
+      <Breadcrumb go={go} items={[
+        { label: 'Главная', view: 'home' },
+        { label: cat ? cat.name : 'Каталог', view: 'catalog', params: { category: product.categoryId } },
+        { label: product.name },
+      ]} />
+
+      <div className="product-layout">
+        <div>
+          <div className="gallery-main">
+            {images[activeImg] ? <img src={images[activeImg]} alt={product.name} /> : <ProductImage product={product} iconSize={80} />}
+          </div>
+          {images.length > 1 && (
+            <div className="gallery-thumbs">
+              {images.map((im, i) => (
+                <div key={i} className={cls('gallery-thumb', activeImg === i && 'active')} onClick={() => setActiveImg(i)}>
+                  {im ? <img src={im} alt="" /> : <ProductImage product={product} iconSize={24} />}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <p className="pp-cat">{cat ? cat.name : ''} · Артикул {product.sku}</p>
+          <h1 className="pp-title">{product.name}</h1>
+          <div className="pp-price">{formatPrice(price)}{product.discountPercent > 0 && <span className="price-old" style={{ marginLeft: 12, fontSize: 18 }}>{formatPrice(product.price)}</span>}</div>
+          <div className="stock-line">
+            <span className={cls('dot', inStock ? 'dot-ok' : 'dot-out')} />
+            {inStock ? `В наличии · ${product.stock} шт.` : 'Под заказ'}
+          </div>
+
+          <div className="qty-row">
+            <button onClick={() => setQty((q) => Math.max(1, q - 1))} disabled={qty <= 1}><Minus size={14} /></button>
+            <span>{qty}</span>
+            <button onClick={() => setQty((q) => Math.min(99, q + 1))}><Plus size={14} /></button>
+          </div>
+
+          <div className="pp-actions">
+            <button className="btn btn-outline" onClick={() => onAddToCart(product, qty)}>
+              <ShoppingCart size={16} /> В корзину
+            </button>
+            <button className="btn btn-primary" onClick={() => onQuickBuy(product, qty)}>
+              Купить в 1 клик
+            </button>
+          </div>
+
+          <div className="tabs-row">
+            <button className={cls('tab-btn', tab === 'desc' && 'active')} onClick={() => setTab('desc')}>Описание</button>
+            <button className={cls('tab-btn', tab === 'specs' && 'active')} onClick={() => setTab('specs')}>Характеристики</button>
+          </div>
+          {tab === 'desc' ? (
+            <p style={{ fontSize: 14.5, color: 'var(--ink-soft)', lineHeight: 1.7 }}>{product.description}</p>
+          ) : (
+            <table className="specs-table">
+              <tbody>
+                {product.specs.map(([k, v], i) => (
+                  <tr key={i}><td>{k}</td><td>{v}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {related.length > 0 && (
+        <div style={{ marginTop: 80 }}>
+          <SectionHead eyebrow="Рекомендации" title="Похожие товары" />
+          <div className="grid-products">
+            {related.map((p2) => <ProductCard key={p2.id} product={p2} categories={categories} onOpen={(id) => go('product', { id })} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   QUICK BUY MODAL
+   ============================================================ */
+
+function QuickBuyModal({ product, qty, onClose, onSubmit }) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [errors, setErrors] = useState({});
+  const [done, setDone] = useState(false);
+  const [order, setOrder] = useState(null);
+
+  const submit = (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!name.trim()) errs.name = 'Укажите имя';
+    if (!phone.trim()) errs.phone = 'Укажите телефон';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    const created = onSubmit({ name, phone });
+    setOrder(created);
+    setDone(true);
+  };
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-card">
+        <button className="icon-btn modal-close" onClick={onClose}><X size={18} /></button>
+        {!done ? (
+          <>
+            <p className="eyebrow">Покупка в 1 клик</p>
+            <h3 style={{ fontSize: 19, fontWeight: 600, margin: '0 0 18px' }}>{product.name}</h3>
+            <p style={{ fontSize: 14, color: 'var(--ink-soft)', marginBottom: 20 }}>{qty} шт. · {formatPrice(finalPrice(product) * qty)}</p>
+            <form onSubmit={submit}>
+              <div className="field">
+                <label>Имя</label>
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Как к вам обращаться" />
+                {errors.name && <p className="field-error">{errors.name}</p>}
+              </div>
+              <div className="field">
+                <label>Телефон</label>
+                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 7__ ___ __ __" />
+                {errors.phone && <p className="field-error">{errors.phone}</p>}
+              </div>
+              <button type="submit" className="btn btn-primary btn-block">Подтвердить заказ</button>
+            </form>
+          </>
+        ) : (
+          <>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--ink)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
+              <Check size={22} />
+            </div>
+            <h3 style={{ fontSize: 19, fontWeight: 600, margin: '0 0 8px' }}>Заказ №{order.number} принят</h3>
+            <p style={{ fontSize: 14, color: 'var(--ink-soft)', marginBottom: 22 }}>Мы свяжемся с вами в ближайшее время. Можно также написать нам напрямую в WhatsApp.</p>
+            <a className="btn btn-wa btn-block" href={waLink(orderToWhatsAppText(order))} target="_blank" rel="noopener noreferrer" style={{ marginBottom: 10 }}>
+              <MessageCircle size={16} /> Написать в WhatsApp
+            </a>
+            <button className="btn btn-ghost btn-block" onClick={onClose}>Закрыть</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function orderToWhatsAppText(order) {
+  const lines = [
+    `Здравствуйте! Заказ №${order.number} с сайта DIAMOND.`,
+    `Имя: ${order.name}`,
+    `Телефон: ${order.phone}`,
+  ];
+  if (order.city) lines.push(`Город: ${order.city}`);
+  lines.push('Товары:');
+  order.items.forEach((it) => lines.push(`— ${it.name} × ${it.qty} = ${formatPrice(it.price * it.qty)}`));
+  lines.push(`Итого: ${formatPrice(order.total)}`);
+  return lines.join('\n');
+}
+
+/* ============================================================
+   CART PAGE
+   ============================================================ */
+
+function CartPage({ go, cart, products, updateQty, removeItem }) {
+  const lines = cart.map((c) => ({ ...c, product: products.find((p2) => p2.id === c.productId) })).filter((l) => l.product);
+  const total = lines.reduce((sum, l) => sum + finalPrice(l.product) * l.qty, 0);
+
+  if (lines.length === 0) {
+    return (
+      <div className="container" style={{ padding: '60px 28px 120px' }}>
+        <Breadcrumb go={go} items={[{ label: 'Главная', view: 'home' }, { label: 'Корзина' }]} />
+        <div className="empty-state">
+          <ShoppingCart size={36} style={{ marginBottom: 14, opacity: .4 }} />
+          <p>Ваша корзина пуста.</p>
+          <button className="btn btn-primary" style={{ marginTop: 18 }} onClick={() => go('catalog')}>Перейти в каталог</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container" style={{ padding: '40px 28px 120px' }}>
+      <Breadcrumb go={go} items={[{ label: 'Главная', view: 'home' }, { label: 'Корзина' }]} />
+      <SectionHead title="Корзина" sub={`${lines.length} ${lines.length === 1 ? 'товар' : 'товара'}`} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 48, alignItems: 'flex-start' }} className="cart-grid-resp">
+        <div>
+          {lines.map((l) => (
+            <div className="cart-row" key={l.productId}>
+              <div className="cart-thumb" onClick={() => go('product', { id: l.product.id })} style={{ cursor: 'pointer' }}>
+                <ProductImage product={l.product} iconSize={26} />
+              </div>
+              <div style={{ cursor: 'pointer' }} onClick={() => go('product', { id: l.product.id })}>
+                <div style={{ fontSize: 14.5, fontWeight: 500, marginBottom: 4 }}>{l.product.name}</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{formatPrice(finalPrice(l.product))} / шт.</div>
+              </div>
+              <div className="qty-col qty-row">
+                <button onClick={() => updateQty(l.productId, Math.max(1, l.qty - 1))} disabled={l.qty <= 1}><Minus size={13} /></button>
+                <span>{l.qty}</span>
+                <button onClick={() => updateQty(l.productId, l.qty + 1)}><Plus size={13} /></button>
+              </div>
+              <div className="sum-col" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <span style={{ fontWeight: 600, fontSize: 14.5 }}>{formatPrice(finalPrice(l.product) * l.qty)}</span>
+                <button className="icon-btn" onClick={() => removeItem(l.productId)} aria-label="Удалить"><Trash2 size={16} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="cart-summary">
+          <div className="summary-line"><span>Товары ({lines.length})</span><span>{formatPrice(total)}</span></div>
+          <div className="summary-line"><span>Доставка</span><span>По тарифам региона</span></div>
+          <div className="summary-total"><span>Итого</span><span>{formatPrice(total)}</span></div>
+          <button className="btn btn-primary btn-block" onClick={() => go('checkout')}>Оформить заказ</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CHECKOUT PAGE
+   ============================================================ */
+
+function CheckoutPage({ go, cart, products, onPlaceOrder }) {
+  const [form, setForm] = useState({ name: '', phone: '', company: '', city: '', comment: '' });
+  const [errors, setErrors] = useState({});
+
+  const lines = cart.map((c) => ({ ...c, product: products.find((p2) => p2.id === c.productId) })).filter((l) => l.product);
+  const total = lines.reduce((sum, l) => sum + finalPrice(l.product) * l.qty, 0);
+
+  if (lines.length === 0) {
+    return (
+      <div className="container empty-state" style={{ padding: '100px 28px' }}>
+        <p>Корзина пуста — оформить заказ нечего.</p>
+        <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => go('catalog')}>В каталог</button>
+      </div>
+    );
+  }
+
+  const submit = (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!form.name.trim()) errs.name = 'Укажите имя';
+    if (!form.phone.trim()) errs.phone = 'Укажите телефон';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    const order = onPlaceOrder(form);
+    go('order-success', { order });
+  };
+
+  return (
+    <div className="container" style={{ padding: '40px 28px 120px' }}>
+      <Breadcrumb go={go} items={[{ label: 'Главная', view: 'home' }, { label: 'Корзина', view: 'cart' }, { label: 'Оформление заказа' }]} />
+      <SectionHead title="Оформление заказа" />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 48, alignItems: 'flex-start' }} className="cart-grid-resp">
+        <form onSubmit={submit}>
+          <div className="field-row2">
+            <div className="field">
+              <label>Имя *</label>
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ваше имя" />
+              {errors.name && <p className="field-error">{errors.name}</p>}
+            </div>
+            <div className="field">
+              <label>Телефон *</label>
+              <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+7 7__ ___ __ __" />
+              {errors.phone && <p className="field-error">{errors.phone}</p>}
+            </div>
+          </div>
+          <div className="field-row2">
+            <div className="field">
+              <label>Компания</label>
+              <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} placeholder="Необязательно" />
+            </div>
+            <div className="field">
+              <label>Город</label>
+              <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Алматы" />
+            </div>
+          </div>
+          <div className="field">
+            <label>Комментарий к заказу</label>
+            <textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} placeholder="Удобное время доставки, пожелания…" />
+          </div>
+          <button type="submit" className="btn btn-primary btn-block">Подтвердить заказ</button>
+        </form>
+        <div className="cart-summary">
+          {lines.map((l) => (
+            <div className="summary-line" key={l.productId}><span>{l.product.name} × {l.qty}</span><span>{formatPrice(finalPrice(l.product) * l.qty)}</span></div>
+          ))}
+          <div className="summary-total"><span>Итого</span><span>{formatPrice(total)}</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OrderSuccessPage({ go, params }) {
+  const order = params.order;
+  if (!order) {
+    return (
+      <div className="container empty-state" style={{ padding: '100px 28px' }}>
+        <p>Информация о заказе недоступна.</p>
+        <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => go('home')}>На главную</button>
+      </div>
+    );
+  }
+  return (
+    <div className="container" style={{ padding: '80px 28px 140px', textAlign: 'center' }}>
+      <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'var(--ink)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+        <Check size={26} />
+      </div>
+      <h1 className="section-title" style={{ marginBottom: 10 }}>Заказ №{order.number} принят</h1>
+      <p style={{ color: 'var(--ink-soft)', fontSize: 15, maxWidth: 440, margin: '0 auto 32px' }}>
+        Спасибо, {order.name}! Мы свяжемся с вами по телефону {order.phone} для подтверждения. Чтобы ускорить обработку, напишите нам в WhatsApp.
+      </p>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+        <a className="btn btn-wa" href={waLink(orderToWhatsAppText(order))} target="_blank" rel="noopener noreferrer"><MessageCircle size={16} /> Написать в WhatsApp</a>
+        <button className="btn btn-ghost" onClick={() => go('catalog')}>Продолжить покупки</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CONTACTS PAGE
+   ============================================================ */
+
+function ContactsPage({ go }) {
+  return (
+    <div className="container" style={{ padding: '40px 28px 120px' }}>
+      <Breadcrumb go={go} items={[{ label: 'Главная', view: 'home' }, { label: 'Контакты' }]} />
+      <SectionHead eyebrow="Связь" title="Контакты" sub="Ответим на любые вопросы по товарам и доставке." />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }} className="cart-grid-resp">
+        <div className="contact-card">
+          <div className="contact-row"><div className="ic"><Building2 size={17} /></div> {CONTACT_NAME}, основатель DIAMOND</div>
+          <div className="contact-row"><div className="ic"><Phone size={17} /></div> <a href={`tel:${digitsOnly(CONTACT_PHONE_DISPLAY)}`}>{CONTACT_PHONE_DISPLAY}</a></div>
+          <div className="contact-row"><div className="ic"><MapPin size={17} /></div> Алматы, Казахстан</div>
+          <div className="contact-row"><div className="ic"><Clock size={17} /></div> Пн–Сб, 9:00–19:00</div>
+          <a className="btn btn-wa btn-block" href={waLink('Здравствуйте! Хочу сделать заказ в DIAMOND.')} target="_blank" rel="noopener noreferrer">
+            <MessageCircle size={16} /> Написать в WhatsApp
+          </a>
+        </div>
+        <div className="map-placeholder">
+          <MapPin size={26} />
+          <span>г. Алматы, Казахстан</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   ADMIN
+   ============================================================ */
+
+function AdminLogin({ onLogin, settings }) {
+  const [pass, setPass] = useState('');
+  const [error, setError] = useState('');
+  const submit = (e) => {
+    e.preventDefault();
+    if (pass === settings.adminPassword) {
+      onLogin();
+    } else {
+      setError('Неверный пароль');
+    }
+  };
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <form onSubmit={submit} style={{ width: '100%', maxWidth: 360 }}>
+        <div className="brand" style={{ justifyContent: 'center', marginBottom: 28 }}>
+          <DiamondMark size={28} /><span className="brand-word">{STORE_NAME}</span>
+        </div>
+        <p style={{ textAlign: 'center', fontSize: 13.5, color: 'var(--ink-soft)', marginBottom: 24 }}>Панель управления магазином</p>
+        <div className="field">
+          <label>Пароль администратора</label>
+          <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" autoFocus />
+          {error && <p className="field-error">{error}</p>}
+        </div>
+        <button className="btn btn-primary btn-block" type="submit"><Lock size={15} /> Войти</button>
+        <p className="helper-text" style={{ textAlign: 'center', marginTop: 16 }}>Пароль по умолчанию: <b>{SETTINGS_SEED.adminPassword}</b>. Сменить можно во вкладке «Настройки».</p>
+      </form>
+    </div>
+  );
+}
+
+const STATUS_LABELS = { new: 'Новый', processing: 'В обработке', done: 'Выполнен', cancelled: 'Отменён' };
+const STATUS_CLASS = { new: 'status-new', processing: 'status-processing', done: 'status-done', cancelled: 'status-cancelled' };
+
+function AdminShell({ go, products, setProducts, categories, setCategories, orders, setOrders, settings, setSettings, onLogout }) {
+  const [tab, setTab] = useState('products');
+
+  return (
+    <div className="admin-shell">
+      <div className="admin-top">
+        <div className="brand" onClick={() => go('home')} style={{ cursor: 'pointer' }}>
+          <DiamondMark size={22} /><span className="brand-word" style={{ fontSize: 16 }}>{STORE_NAME} · Панель управления</span>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => go('home')}>В магазин</button>
+          <button className="btn btn-ghost btn-sm" onClick={onLogout}><LogOut size={14} /> Выйти</button>
+        </div>
+      </div>
+      <div className="admin-body">
+        <div className="admin-tabs">
+          {[
+            ['products', 'Товары'],
+            ['categories', 'Категории'],
+            ['orders', 'Заказы'],
+            ['promo', 'Акции'],
+            ['settings', 'Настройки'],
+          ].map(([key, label]) => (
+            <div key={key} className={cls('admin-tab', tab === key && 'active')} onClick={() => setTab(key)}>{label}</div>
+          ))}
+        </div>
+
+        {tab === 'products' && <AdminProducts products={products} setProducts={setProducts} categories={categories} />}
+        {tab === 'categories' && <AdminCategories categories={categories} setCategories={setCategories} products={products} />}
+        {tab === 'orders' && <AdminOrders orders={orders} setOrders={setOrders} />}
+        {tab === 'promo' && <AdminPromotions products={products} setProducts={setProducts} categories={categories} settings={settings} setSettings={setSettings} />}
+        {tab === 'settings' && <AdminSettings settings={settings} setSettings={setSettings} />}
+      </div>
+    </div>
+  );
+}
+
+function emptyProductForm(categories) {
+  return {
+    id: null, sku: '', name: '', categoryId: categories[0] ? categories[0].id : '', brand: '',
+    price: '', discountPercent: '0', images: '', description: '', specsText: '', stock: '0',
+    isHit: false, isNew: false,
+  };
+}
+
+function productToForm(p2) {
+  return {
+    id: p2.id, sku: p2.sku, name: p2.name, categoryId: p2.categoryId, brand: p2.brand,
+    price: String(p2.price), discountPercent: String(p2.discountPercent || 0),
+    images: (p2.images || []).join('\n'),
+    description: p2.description,
+    specsText: (p2.specs || []).map(([k, v]) => `${k}: ${v}`).join('\n'),
+    stock: String(p2.stock),
+    isHit: p2.isHit, isNew: p2.isNew,
+  };
+}
+
+function formToProduct(f) {
+  const specs = f.specsText.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+    const idx = line.indexOf(':');
+    if (idx === -1) return [line, ''];
+    return [line.slice(0, idx).trim(), line.slice(idx + 1).trim()];
+  });
+  const images = f.images.split('\n').map((s) => s.trim()).filter(Boolean);
+  return {
+    id: f.id || genId('prod'),
+    sku: f.sku || ('DM-' + Math.floor(1000 + Math.random() * 9000)),
+    name: f.name.trim(),
+    categoryId: f.categoryId,
+    brand: f.brand.trim(),
+    price: Number(f.price) || 0,
+    discountPercent: Math.max(0, Math.min(90, Number(f.discountPercent) || 0)),
+    images,
+    description: f.description.trim(),
+    specs,
+    stock: Math.max(0, Number(f.stock) || 0),
+    isHit: f.isHit,
+    isNew: f.isNew,
+  };
+}
+
+function AdminProducts({ products, setProducts, categories }) {
+  const [editing, setEditing] = useState(null); // form object or null
+  const [query, setQuery] = useState('');
+
+  const filtered = products.filter((p2) => p2.name.toLowerCase().includes(query.toLowerCase()));
+
+  const openNew = () => setEditing(emptyProductForm(categories));
+  const openEdit = (p2) => setEditing(productToForm(p2));
+
+  const save = (e) => {
+    e.preventDefault();
+    if (!editing.name.trim() || !editing.categoryId || !editing.price) return;
+    const prod = formToProduct(editing);
+    setProducts((prev) => {
+      const exists = prev.some((p2) => p2.id === prod.id);
+      return exists ? prev.map((p2) => (p2.id === prod.id ? prod : p2)) : [prod, ...prev];
+    });
+    setEditing(null);
+  };
+
+  const remove = (id) => {
+    if (window.confirm('Удалить товар?')) {
+      setProducts((prev) => prev.filter((p2) => p2.id !== id));
+    }
+  };
+
+  return (
+    <div>
+      <div className="admin-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <input className="select-min" style={{ minWidth: 220 }} placeholder="Поиск товара…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <button className="btn btn-primary btn-sm" onClick={openNew}><Plus size={15} /> Добавить товар</button>
+      </div>
+
+      <div className="admin-card" style={{ padding: 0, overflowX: 'auto' }}>
+        <table className="admin-table">
+          <thead>
+            <tr><th></th><th>Название</th><th>Категория</th><th>Цена</th><th>Остаток</th><th>Метки</th><th></th></tr>
+          </thead>
+          <tbody>
+            {filtered.map((p2) => {
+              const cat = categories.find((c) => c.id === p2.categoryId);
+              return (
+                <tr key={p2.id}>
+                  <td><div className="admin-thumb"><ProductImage product={p2} iconSize={18} /></div></td>
+                  <td style={{ maxWidth: 220 }}>{p2.name}</td>
+                  <td>{cat ? cat.name : '—'}</td>
+                  <td>{formatPrice(finalPrice(p2))}{p2.discountPercent > 0 && <span style={{ color: 'var(--ink-faint)', marginLeft: 6, fontSize: 12 }}>−{p2.discountPercent}%</span>}</td>
+                  <td>{p2.stock}</td>
+                  <td>{p2.isHit && <span className="badge badge-hit" style={{ marginRight: 4 }}>Хит</span>}{p2.isNew && <span className="badge badge-new">Новинка</span>}</td>
+                  <td>
+                    <div className="row-actions">
+                      <button className="icon-action" onClick={() => openEdit(p2)}><Pencil size={13} /></button>
+                      <button className="icon-action" onClick={() => remove(p2.id)}><Trash2 size={13} /></button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--ink-faint)', padding: 30 }}>Товары не найдены</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {editing && (
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setEditing(null); }}>
+          <div className="modal-card wide">
+            <button className="icon-btn modal-close" onClick={() => setEditing(null)}><X size={18} /></button>
+            <p className="eyebrow">{editing.id ? 'Редактирование товара' : 'Новый товар'}</p>
+            <form onSubmit={save}>
+              <div className="field"><label>Название *</label><input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></div>
+              <div className="field-row2">
+                <div className="field">
+                  <label>Категория *</label>
+                  <select value={editing.categoryId} onChange={(e) => setEditing({ ...editing, categoryId: e.target.value })}>
+                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="field"><label>Бренд</label><input value={editing.brand} onChange={(e) => setEditing({ ...editing, brand: e.target.value })} /></div>
+              </div>
+              <div className="field-row2">
+                <div className="field"><label>Цена, ₸ *</label><input type="number" min="0" value={editing.price} onChange={(e) => setEditing({ ...editing, price: e.target.value })} /></div>
+                <div className="field"><label>Скидка, % (для акции)</label><input type="number" min="0" max="90" value={editing.discountPercent} onChange={(e) => setEditing({ ...editing, discountPercent: e.target.value })} /></div>
+              </div>
+              <div className="field-row2">
+                <div className="field"><label>Остаток, шт.</label><input type="number" min="0" value={editing.stock} onChange={(e) => setEditing({ ...editing, stock: e.target.value })} /></div>
+                <div className="field" style={{ display: 'flex', gap: 18, alignItems: 'center', paddingTop: 26 }}>
+                  <label className="check-field"><input type="checkbox" checked={editing.isHit} onChange={(e) => setEditing({ ...editing, isHit: e.target.checked })} /> Хит продаж</label>
+                  <label className="check-field"><input type="checkbox" checked={editing.isNew} onChange={(e) => setEditing({ ...editing, isNew: e.target.checked })} /> Новинка</label>
+                </div>
+              </div>
+              <div className="field">
+                <label>Фотографии — по одной ссылке в строке</label>
+                <textarea value={editing.images} onChange={(e) => setEditing({ ...editing, images: e.target.value })} placeholder="https://..." />
+                <p className="helper-text">Если оставить пустым — будет показана минималистичная иконка-заглушка.</p>
+              </div>
+              <div className="field"><label>Описание</label><textarea value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></div>
+              <div className="field">
+                <label>Характеристики — «ключ: значение» в каждой строке</label>
+                <textarea value={editing.specsText} onChange={(e) => setEditing({ ...editing, specsText: e.target.value })} placeholder={'Объём: 1 л\nБренд: AquaShine'} />
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+                <button type="submit" className="btn btn-primary"><Save size={15} /> Сохранить</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)}>Отмена</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminCategories({ categories, setCategories, products }) {
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ name: '', icon: ICON_KEYS[0] });
+  const [renameId, setRenameId] = useState(null);
+  const [renameVal, setRenameVal] = useState('');
+
+  const counts = (id) => products.filter((p2) => p2.categoryId === id).length;
+
+  const addCategory = (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    setCategories((prev) => [...prev, { id: genId('cat'), name: form.name.trim(), icon: form.icon }]);
+    setForm({ name: '', icon: ICON_KEYS[0] });
+    setAdding(false);
+  };
+
+  const saveRename = (id) => {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name: renameVal } : c)));
+    setRenameId(null);
+  };
+
+  const remove = (id) => {
+    if (counts(id) > 0) {
+      window.alert('Сначала перенесите товары этой категории в другую — её нельзя удалить, пока в ней есть товары.');
+      return;
+    }
+    if (window.confirm('Удалить категорию?')) setCategories((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  return (
+    <div>
+      <div className="admin-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 14.5, fontWeight: 500 }}>Категории каталога</span>
+        <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}><Plus size={15} /> Добавить категорию</button>
+      </div>
+
+      <div className="admin-card" style={{ padding: 0 }}>
+        <table className="admin-table">
+          <thead><tr><th></th><th>Название</th><th>Товаров</th><th></th></tr></thead>
+          <tbody>
+            {categories.map((c) => (
+              <tr key={c.id}>
+                <td><div className="admin-thumb"><CatIcon name={c.icon} size={17} /></div></td>
+                <td>
+                  {renameId === c.id ? (
+                    <input className="select-min" value={renameVal} onChange={(e) => setRenameVal(e.target.value)} autoFocus />
+                  ) : c.name}
+                </td>
+                <td>{counts(c.id)}</td>
+                <td>
+                  <div className="row-actions">
+                    {renameId === c.id ? (
+                      <button className="icon-action" onClick={() => saveRename(c.id)}><Check size={13} /></button>
+                    ) : (
+                      <button className="icon-action" onClick={() => { setRenameId(c.id); setRenameVal(c.name); }}><Pencil size={13} /></button>
+                    )}
+                    <button className="icon-action" onClick={() => remove(c.id)}><Trash2 size={13} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {adding && (
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setAdding(false); }}>
+          <div className="modal-card">
+            <button className="icon-btn modal-close" onClick={() => setAdding(false)}><X size={18} /></button>
+            <p className="eyebrow">Новая категория</p>
+            <form onSubmit={addCategory}>
+              <div className="field"><label>Название *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus /></div>
+              <div className="field">
+                <label>Иконка</label>
+                <div className="icon-grid">
+                  {ICON_KEYS.map((k) => (
+                    <button type="button" key={k} className={cls(form.icon === k && 'active')} onClick={() => setForm({ ...form, icon: k })}>
+                      <CatIcon name={k} size={16} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary btn-block">Создать</button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminOrders({ orders, setOrders }) {
+  const [openId, setOpenId] = useState(null);
+  const sorted = [...orders].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+
+  const setStatus = (id, status) => {
+    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
+  };
+
+  if (sorted.length === 0) {
+    return <div className="admin-card empty-state"><p>Заказов пока нет — они появятся здесь после оформления на сайте.</p></div>;
+  }
+
+  return (
+    <div className="admin-card" style={{ padding: 0, overflowX: 'auto' }}>
+      <table className="admin-table">
+        <thead><tr><th>№</th><th>Дата</th><th>Клиент</th><th>Город</th><th>Сумма</th><th>Статус</th><th></th></tr></thead>
+        <tbody>
+          {sorted.map((o) => (
+            <React.Fragment key={o.id}>
+              <tr style={{ cursor: 'pointer' }} onClick={() => setOpenId(openId === o.id ? null : o.id)}>
+                <td>#{o.number}</td>
+                <td>{new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
+                <td>{o.name}<br /><span style={{ color: 'var(--ink-faint)', fontSize: 12 }}>{o.phone}</span></td>
+                <td>{o.city || '—'}</td>
+                <td>{formatPrice(o.total)}</td>
+                <td><span className={cls('status-pill', STATUS_CLASS[o.status])}>{STATUS_LABELS[o.status]}</span></td>
+                <td>{openId === o.id ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</td>
+              </tr>
+              {openId === o.id && (
+                <tr>
+                  <td colSpan={7} style={{ background: 'var(--bg-soft)' }}>
+                    <div style={{ padding: '12px 6px' }}>
+                      {o.items.map((it, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                          <span>{it.name} × {it.qty}</span><span>{formatPrice(it.price * it.qty)}</span>
+                        </div>
+                      ))}
+                      {o.company && <p style={{ fontSize: 13, margin: '8px 0 0' }}>Компания: {o.company}</p>}
+                      {o.comment && <p style={{ fontSize: 13, margin: '8px 0 0' }}>Комментарий: {o.comment}</p>}
+                      <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <select className="select-min" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
+                          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                        </select>
+                        <a className="btn btn-wa btn-sm" href={waLink(orderToWhatsAppText(o))} target="_blank" rel="noopener noreferrer"><MessageCircle size={14} /> Написать клиенту</a>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AdminPromotions({ products, setProducts, categories, settings, setSettings }) {
+  const [bulkCategory, setBulkCategory] = useState(categories[0] ? categories[0].id : '');
+  const [bulkPercent, setBulkPercent] = useState('15');
+  const [localSettings, setLocalSettings] = useState(settings);
+
+  useEffect(() => setLocalSettings(settings), [settings]);
+
+  const applyBulk = () => {
+    const pct = Math.max(0, Math.min(90, Number(bulkPercent) || 0));
+    setProducts((prev) => prev.map((p2) => (p2.categoryId === bulkCategory ? { ...p2, discountPercent: pct } : p2)));
+  };
+
+  const clearBulk = () => {
+    setProducts((prev) => prev.map((p2) => (p2.categoryId === bulkCategory ? { ...p2, discountPercent: 0 } : p2)));
+  };
+
+  const saveBanner = (e) => {
+    e.preventDefault();
+    setSettings(localSettings);
+  };
+
+  const onSaleCount = products.filter((p2) => p2.discountPercent > 0).length;
+
+  return (
+    <div>
+      <div className="admin-card">
+        <p style={{ fontSize: 14.5, fontWeight: 500, marginBottom: 4 }}>Баннер на главной</p>
+        <p className="helper-text" style={{ marginBottom: 16 }}>Полоса с акцией, которая показывается вверху главной страницы.</p>
+        <form onSubmit={saveBanner}>
+          <label className="check-field"><input type="checkbox" checked={localSettings.bannerActive} onChange={(e) => setLocalSettings({ ...localSettings, bannerActive: e.target.checked })} /> Показывать баннер</label>
+          <div className="field"><input value={localSettings.bannerText} onChange={(e) => setLocalSettings({ ...localSettings, bannerText: e.target.value })} /></div>
+          <button className="btn btn-primary btn-sm" type="submit"><Save size={14} /> Сохранить баннер</button>
+        </form>
+      </div>
+
+      <div className="admin-card">
+        <p style={{ fontSize: 14.5, fontWeight: 500, marginBottom: 4 }}>Скидка на категорию</p>
+        <p className="helper-text" style={{ marginBottom: 16 }}>Сейчас со скидкой: {onSaleCount} товаров.</p>
+        <div className="field-row2">
+          <div className="field">
+            <label>Категория</label>
+            <select value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)}>
+              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>Скидка, %</label>
+            <input type="number" min="0" max="90" value={bulkPercent} onChange={(e) => setBulkPercent(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-primary btn-sm" onClick={applyBulk}><Save size={14} /> Применить скидку</button>
+          <button className="btn btn-ghost btn-sm" onClick={clearBulk}><RotateCcw size={14} /> Сбросить скидку категории</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminSettings({ settings, setSettings }) {
+  const [form, setForm] = useState(settings);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => setForm(settings), [settings]);
+
+  const submit = (e) => {
+    e.preventDefault();
+    setSettings(form);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  return (
+    <div className="admin-card" style={{ maxWidth: 420 }}>
+      <p style={{ fontSize: 14.5, fontWeight: 500, marginBottom: 16 }}>Пароль администратора</p>
+      <form onSubmit={submit}>
+        <div className="field"><label>Новый пароль</label><input value={form.adminPassword} onChange={(e) => setForm({ ...form, adminPassword: e.target.value })} /></div>
+        <button className="btn btn-primary btn-sm" type="submit"><Save size={14} /> Сохранить</button>
+        {saved && <span style={{ marginLeft: 12, fontSize: 13, color: 'var(--ok)' }}>Сохранено</span>}
+      </form>
+      <p className="helper-text" style={{ marginTop: 18 }}>
+        Это служит лёгкой защитой панели для демонстрационных целей. Для реального магазина потребуется полноценная серверная авторизация.
+      </p>
+    </div>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div className="loading-screen">
+      <div className="pulse"><DiamondMark size={36} /></div>
+      <span style={{ fontSize: 13, color: 'var(--ink-faint)' }}>Загрузка DIAMOND…</span>
+    </div>
+  );
+}
+
+/* ============================================================
+   ROOT APP
+   ============================================================ */
+
+export default function App() {
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [storageOk, setStorageOk] = useState(true);
+  const [products, setProductsState] = useState(PRODUCTS_SEED);
+  const [categories, setCategoriesState] = useState(CATEGORIES_SEED);
+  const [orders, setOrdersState] = useState([]);
+  const [settings, setSettingsState] = useState(SETTINGS_SEED);
+
+  const [view, setView] = useState('home');
+  const [params, setParams] = useState({});
+  const [cart, setCart] = useState([]);
+  const [query, setQuery] = useState('');
+  const [toast, setToast] = useState(null);
+  const [adminAuthed, setAdminAuthed] = useState(false);
+  const [quickBuy, setQuickBuy] = useState(null); // {product, qty}
+
+  // ---- load from persistent storage ----
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      let ok = true;
+      try {
+        const r = await window.storage.get('diamond:products', true);
+        if (!cancelled) setProductsState(JSON.parse(r.value));
+      } catch (e) {
+        ok = false;
+        try { await window.storage.set('diamond:products', JSON.stringify(PRODUCTS_SEED), true); } catch (e2) { ok = false; }
+      }
+      try {
+        const r = await window.storage.get('diamond:categories', true);
+        if (!cancelled) setCategoriesState(JSON.parse(r.value));
+      } catch (e) {
+        try { await window.storage.set('diamond:categories', JSON.stringify(CATEGORIES_SEED), true); } catch (e2) { ok = false; }
+      }
+      try {
+        const r = await window.storage.get('diamond:orders', true);
+        if (!cancelled) setOrdersState(JSON.parse(r.value));
+      } catch (e) {
+        try { await window.storage.set('diamond:orders', JSON.stringify([]), true); } catch (e2) { ok = false; }
+      }
+      try {
+        const r = await window.storage.get('diamond:settings', true);
+        if (!cancelled) setSettingsState({ ...SETTINGS_SEED, ...JSON.parse(r.value) });
+      } catch (e) {
+        try { await window.storage.set('diamond:settings', JSON.stringify(SETTINGS_SEED), true); } catch (e2) { ok = false; }
+      }
+      if (!cancelled) { setStorageOk(ok); setDataLoaded(true); }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const setProducts = useCallback((updater) => {
+    setProductsState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      window.storage.set('diamond:products', JSON.stringify(next), true).catch(() => {});
+      return next;
+    });
+  }, []);
+  const setCategories = useCallback((updater) => {
+    setCategoriesState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      window.storage.set('diamond:categories', JSON.stringify(next), true).catch(() => {});
+      return next;
+    });
+  }, []);
+  const setOrders = useCallback((updater) => {
+    setOrdersState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      window.storage.set('diamond:orders', JSON.stringify(next), true).catch(() => {});
+      return next;
+    });
+  }, []);
+  const setSettings = useCallback((next) => {
+    setSettingsState(next);
+    window.storage.set('diamond:settings', JSON.stringify(next), true).catch(() => {});
+  }, []);
+
+  const go = useCallback((nextView, nextParams = {}) => {
+    setView(nextView);
+    setParams(nextParams);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2200);
+  };
+
+  const addToCart = (product, qty = 1) => {
+    setCart((prev) => {
+      const existing = prev.find((c) => c.productId === product.id);
+      if (existing) {
+        return prev.map((c) => (c.productId === product.id ? { ...c, qty: c.qty + qty } : c));
+      }
+      return [...prev, { productId: product.id, qty }];
+    });
+    showToast(`«${product.name}» добавлен в корзину`);
+  };
+
+  const updateQty = (productId, qty) => {
+    setCart((prev) => prev.map((c) => (c.productId === productId ? { ...c, qty } : c)));
+  };
+  const removeItem = (productId) => {
+    setCart((prev) => prev.filter((c) => c.productId !== productId));
+  };
+
+  const cartCount = cart.reduce((s, c) => s + c.qty, 0);
+
+  const createOrder = ({ items, name, phone, company, city, comment, source }) => {
+    const total = items.reduce((s, it) => s + it.price * it.qty, 0);
+    const order = {
+      id: genId('ord'),
+      number: 1000 + orders.length + 1,
+      createdAt: new Date().toISOString(),
+      name, phone, company: company || '', city: city || '', comment: comment || '',
+      items, total, status: 'new', source: source || 'checkout',
+    };
+    setOrders((prev) => [...prev, order]);
+    return order;
+  };
+
+  const handlePlaceOrder = (form) => {
+    const items = cart.map((c) => {
+      const prod = products.find((p2) => p2.id === c.productId);
+      return { productId: c.productId, name: prod.name, price: finalPrice(prod), qty: c.qty };
+    });
+    const order = createOrder({ items, ...form, source: 'checkout' });
+    setCart([]);
+    return order;
+  };
+
+  const handleQuickBuySubmit = ({ name, phone }) => {
+    const { product, qty } = quickBuy;
+    const order = createOrder({
+      items: [{ productId: product.id, name: product.name, price: finalPrice(product), qty }],
+      name, phone, source: 'quick-buy',
+    });
+    return order;
+  };
+
+  let pageContent = null;
+  if (view === 'home') pageContent = <HomePage go={go} products={products} categories={categories} settings={settings} />;
+  else if (view === 'catalog') pageContent = <CatalogPage go={go} products={products} categories={categories} params={params} />;
+  else if (view === 'product') pageContent = <ProductPage go={go} products={products} categories={categories} params={params} onAddToCart={addToCart} onQuickBuy={(product, qty) => setQuickBuy({ product, qty })} />;
+  else if (view === 'cart') pageContent = <CartPage go={go} cart={cart} products={products} updateQty={updateQty} removeItem={removeItem} />;
+  else if (view === 'checkout') pageContent = <CheckoutPage go={go} cart={cart} products={products} onPlaceOrder={handlePlaceOrder} />;
+  else if (view === 'order-success') pageContent = <OrderSuccessPage go={go} params={params} />;
+  else if (view === 'delivery') pageContent = <DeliveryPage go={go} />;
+  else if (view === 'contacts') pageContent = <ContactsPage go={go} />;
+  else pageContent = <HomePage go={go} products={products} categories={categories} settings={settings} />;
+
+  return (
+    <div className="diamond-app">
+      <GlobalStyles />
+      {!dataLoaded ? (
+        <LoadingScreen />
+      ) : view === 'admin' ? (
+        adminAuthed ? (
+          <AdminShell
+            go={go} products={products} setProducts={setProducts}
+            categories={categories} setCategories={setCategories}
+            orders={orders} setOrders={setOrders}
+            settings={settings} setSettings={setSettings}
+            onLogout={() => setAdminAuthed(false)}
+          />
+        ) : (
+          <AdminLogin onLogin={() => setAdminAuthed(true)} settings={settings} />
+        )
+      ) : (
+        <>
+          <Header go={go} view={view} categories={categories} products={products} cartCount={cartCount} query={query} setQuery={setQuery} />
+          <main>{pageContent}</main>
+          <Footer go={go} categories={categories} settings={settings} />
+          <WhatsAppFloat />
+          {!storageOk && (
+            <div style={{ position: 'fixed', bottom: 96, left: 26, fontSize: 11.5, color: 'var(--ink-faint)', maxWidth: 220, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 10px' }}>
+              Хранилище недоступно — изменения сохраняются только в этой вкладке.
+            </div>
+          )}
+        </>
+      )}
+      {toast && <Toast message={toast} />}
+      {quickBuy && (
+        <QuickBuyModal
+          product={quickBuy.product}
+          qty={quickBuy.qty}
+          onClose={() => setQuickBuy(null)}
+          onSubmit={handleQuickBuySubmit}
+        />
+      )}
+    </div>
+  );
+}
